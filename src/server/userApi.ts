@@ -3,6 +3,62 @@ import * as fs from 'fs'
 import * as path from 'path'
 // @ts-ignore
 import needle from 'needle'
+import * as crypto from 'crypto'
+import * as zlib from 'zlib'
+import { promisify } from 'util'
+
+const inflate = promisify(zlib.inflate)
+const deflate = promisify(zlib.deflate)
+
+// 彻底切断与沙箱上下文的联系
+function decontextify(obj: any): any {
+    if (obj === null || obj === undefined) return obj
+
+    // 非对象直接返回
+    if (typeof obj !== 'object') return obj
+
+    // 处理 Buffer (极其重要：使用 Uint8Array 中转以切断 Proxy 链)
+    try {
+        if (Buffer.isBuffer(obj) || obj instanceof Uint8Array || (obj && obj.constructor && obj.constructor.name === 'Buffer')) {
+            return Buffer.from(Uint8Array.from(obj as any))
+        }
+    } catch (e) { }
+
+    // 处理数组
+    if (Array.isArray(obj)) {
+        try {
+            return obj.map(item => decontextify(item))
+        } catch (e) {
+            return []
+        }
+    }
+
+    // 处理 Error
+    if (obj instanceof Error) {
+        const err = new Error(obj.message)
+        err.stack = obj.stack
+        return err
+    }
+
+    // 处理普通对象 (预防 Proxy Traps)
+    try {
+        const newObj: any = {}
+        const keys = Object.keys(obj)
+        for (const key of keys) {
+            try {
+                newObj[key] = decontextify(obj[key])
+            } catch (e) { }
+        }
+        return newObj
+    } catch (e) {
+        try {
+            const str = JSON.stringify(obj)
+            return str ? JSON.parse(str) : String(obj)
+        } catch (e2) {
+            return String(obj)
+        }
+    }
+}
 
 // 用户API信息接口
 interface UserApiInfo {
@@ -16,6 +72,7 @@ interface UserApiInfo {
     sources: Record<string, any>
     enabled: boolean
     owner: string // 'open' or username
+    allowUnsafeVM?: boolean
 }
 
 // 加载的 API 实例
@@ -33,8 +90,8 @@ export function getApiStatus(id: string) {
 export function extractMetadata(script: string): Partial<UserApiInfo> {
     const meta: any = {}
 
-    // 匹配 JSDoc 风格的注释
-    const commentMatch = script.match(/\/\*!([\s\S]*?)\*\//)
+    // 匹配 JSDoc 风格的注释 (支持 /*! 和 /**)
+    const commentMatch = script.match(/\/\*[*!]([\s\S]*?)\*\//)
     if (commentMatch) {
         const comment = commentMatch[1]
 
@@ -65,17 +122,16 @@ export function extractMetadata(script: string): Partial<UserApiInfo> {
 // 创建 lx.request 包装器（使用 needle）
 function createLxRequest() {
     return (url: string, options: any, callback: Function) => {
-        const { method = 'get', timeout, headers, body, form, formData } = options || {}
+        const safeOptions = decontextify(options || {})
+        const { method = 'get', timeout, headers, body, form, formData } = safeOptions
 
         let requestOptions: any = {
             headers,
             response_timeout: typeof timeout === 'number' && timeout > 0 ? Math.min(timeout, 60000) : 60000
         }
 
-        let data
-        if (body) {
-            data = body
-        } else if (form) {
+        let data = body
+        if (form) {
             data = form
             requestOptions.json = false
         } else if (formData) {
@@ -86,9 +142,8 @@ function createLxRequest() {
         const request = needle.request(method, url, data, requestOptions, (err: any, resp: any, body: any) => {
             try {
                 if (err) {
-                    callback.call(null, err, null, null)
+                    callback.call(null, decontextify(err), null, null)
                 } else {
-                    // 尝试将 body 转换为 JSON
                     let parsedBody = body
                     if (typeof body === 'string') {
                         try {
@@ -96,15 +151,16 @@ function createLxRequest() {
                         } catch { }
                     }
 
-                    callback.call(null, null, {
+                    const safeResp = {
                         statusCode: resp.statusCode,
                         statusMessage: resp.statusMessage,
                         headers: resp.headers,
-                        body: parsedBody
-                    }, parsedBody)
+                        body: decontextify(parsedBody)
+                    }
+                    callback.call(null, null, safeResp, safeResp.body)
                 }
             } catch (error: any) {
-                callback.call(null, error, null, null)
+                callback.call(null, decontextify(error), null, null)
             }
         })
 
@@ -122,22 +178,10 @@ export async function loadUserApi(apiInfo: UserApiInfo): Promise<any> {
 
     const sandbox: any = {
         console,
-        Buffer,
         setTimeout,
         clearTimeout,
         setInterval,
         clearInterval,
-        Promise,
-        Error,
-        JSON,
-        Math,
-        Date,
-        String,
-        Number,
-        Boolean,
-        Array,
-        Object,
-        RegExp,
     }
 
     // 创建事件处理映射
@@ -153,10 +197,10 @@ export async function loadUserApi(apiInfo: UserApiInfo): Promise<any> {
     })
     // ==================================================
 
-    // 创建 lx 环境
-    sandbox.lx = {
+    // lx 环境数据准备 (我们不在 sandbox 中直接放对象，而是通过 vm.run 注入)
+    const lxData = {
         version: '2.0.0',
-        env: 'node',
+        env: 'desktop',
         platform: 'web',
         currentScriptInfo: {
             name: fullApiInfo.name,
@@ -164,48 +208,7 @@ export async function loadUserApi(apiInfo: UserApiInfo): Promise<any> {
             version: fullApiInfo.version,
             author: fullApiInfo.author,
             homepage: fullApiInfo.homepage,
-        },
-        utils: {
-            buffer: {
-                from: (data: any, encoding?: BufferEncoding) => Buffer.from(data, encoding),
-                bufToString: (buf: any, format: BufferEncoding) => Buffer.from(buf, 'binary').toString(format)
-            }
-        },
-        request: createLxRequest(),
-        send: (eventName: string, data: any) => {
-            console.log(`[UserApi-${fullApiInfo.name}] send:`, eventName)
-
-            if (eventName === 'inited') {
-                if (data && data.sources) {
-                    registeredSources = data.sources
-                    console.log(`[UserApi-${fullApiInfo.name}] Registered sources:`, Object.keys(data.sources))
-                }
-                // 触发 initPromise 解析
-                if (initResolve) {
-                    initResolve()
-                }
-                return Promise.resolve()
-            } else if (eventName === 'updateAlert') {
-                console.log(`[UserApi-${fullApiInfo.name}] Update available:`, data)
-                const error = new Error(`发现新版本,需要更新,脚本将不会初始化: ${JSON.stringify({ version: data.version, updateUrl: data.updateUrl, description: data.log })}`)
-                // 触发 initPromise 拒绝
-                if (initReject) {
-                    initReject(error)
-                }
-                return Promise.reject(error)
-            } else {
-                const error = new Error(`Unknown event: ${eventName}`)
-                return Promise.reject(error)
-            }
-        },
-        on: (eventName: string, handler: Function) => {
-            return new Promise((resolve) => {
-                console.log(`[UserApi-${fullApiInfo.name}] on:`, eventName)
-                if (eventName === 'request') {
-                    eventHandlers.set(eventName, handler)
-                }
-                resolve(undefined)
-            })
+            rawScript: fullApiInfo.script,
         },
         EVENT_NAMES: {
             request: 'request',
@@ -214,25 +217,115 @@ export async function loadUserApi(apiInfo: UserApiInfo): Promise<any> {
         }
     }
 
+    // 注入桥接函数
+    sandbox._bridge = {
+        // Utils
+        crypto_md5: (str: string) => crypto.createHash('md5').update((decontextify(str) || '') as any).digest('hex'),
+        crypto_aesEncrypt: (buffer: any, mode: string, key: any, iv: any) => {
+            const dKey = decontextify(key)
+            const dIv = decontextify(iv)
+            const dBuffer = decontextify(buffer)
+            const algorithm = `aes-${(dKey as any).length * 8}-${mode}`
+            const cipher = crypto.createCipheriv(algorithm as any, dKey as any, dIv as any)
+            return Buffer.concat([cipher.update(dBuffer as any) as any, cipher.final() as any])
+        },
+        crypto_rsaEncrypt: (buffer: any, key: any) => crypto.publicEncrypt(decontextify(key) as any, decontextify(buffer) as any),
+        crypto_randomBytes: (size: number) => crypto.randomBytes(size),
+        zlib_inflate: (buffer: any) => inflate(decontextify(buffer) as any),
+        zlib_deflate: (buffer: any) => deflate(decontextify(buffer) as any),
+
+        // Network
+        request: createLxRequest(),
+
+        // System
+        send: (eventName: string, data: any) => {
+            const dData = decontextify(data)
+            console.log(`[UserApi-${fullApiInfo.name}] send:`, eventName)
+            if (eventName === 'inited') {
+                if (dData && dData.sources) {
+                    registeredSources = dData.sources
+                    console.log(`[UserApi-${fullApiInfo.name}] Registered sources:`, Object.keys(registeredSources))
+                }
+                if (initResolve) initResolve()
+            } else if (eventName === 'updateAlert') {
+                const error = new Error(`发现新版本,需要更新: ${JSON.stringify(dData)}`)
+                if (initReject) initReject(error)
+            }
+        },
+        on: (eventName: string, handler: Function) => {
+            console.log(`[UserApi-${fullApiInfo.name}] on:`, eventName)
+            if (eventName === 'request') {
+                eventHandlers.set(eventName, handler)
+            }
+        }
+    }
+
     // 设置 globalThis
-    sandbox.globalThis = sandbox
-    sandbox.global = sandbox
-    sandbox.window = sandbox
-    sandbox.exports = {}
-    sandbox.module = { exports: {} }
     sandbox.__filename = `custom_source_${fullApiInfo.id}.js`
     sandbox.__dirname = '/custom_sources'
 
-    const vm = new VM({
-        timeout: 10000,
-        sandbox,
-        eval: false,
-        wasm: false,
-    })
+    // 初始化 exports 和 module
+    sandbox.exports = {}
+    sandbox.module = { exports: sandbox.exports }
+
+
+    // =========================================================================
+    // 注入方案：直接在 VM 内构建对象
+    // =========================================================================
+    const injectionCode = `
+        this.global = this; this.window = this; this.globalThis = this;
+        const _b = _bridge;
+        this.lx = ${JSON.stringify(lxData)};
+        this.lx.utils = {
+            buffer: {
+                from: (d, e) => Buffer.from(d, e),
+                bufToString: (b, f) => Buffer.isBuffer(b) ? b.toString(f) : Buffer.from(b, 'binary').toString(f)
+            },
+            crypto: {
+                md5: (s) => _b.crypto_md5(s),
+                aesEncrypt: (b, m, k, i) => _b.crypto_aesEncrypt(b, m, k, i),
+                rsaEncrypt: (b, k) => _b.crypto_rsaEncrypt(b, k),
+                randomBytes: (s) => _b.crypto_randomBytes(s)
+            },
+            zlib: {
+                inflate: (b) => _b.zlib_inflate(b),
+                deflate: (b) => _b.zlib_deflate(b)
+            }
+        };
+        this.lx.request = (u, o, c) => _b.request(u, o, c);
+        this.lx.send = (e, d) => _b.send(e, d);
+        this.lx.on = (e, h) => _b.on(e, h);
+        delete this._bridge;
+    `
 
     try {
-        // 执行脚本
-        await vm.run(apiInfo.script)
+        if (apiInfo.allowUnsafeVM) {
+            // 情况1：已确认允许，直接使用原生 vm (直线解决)
+            console.log(`[UserApi] ${fullApiInfo.name} 已启用原生 VM 模式，正在运行...`)
+            const vm = require('vm')
+            const context = vm.createContext(sandbox)
+            vm.runInContext(injectionCode, context)
+            vm.runInContext(apiInfo.script, context)
+        } else {
+            // 情况2：优先尝试安全的 vm2
+            try {
+                const vmInstance = new VM({
+                    timeout: 10000,
+                    sandbox,
+                    eval: true,
+                    wasm: false,
+                })
+                vmInstance.run(injectionCode)
+                await vmInstance.run(apiInfo.script)
+            } catch (e: any) {
+                const isContextError = e.message.includes('contextified object') || e.message.includes('Operation not allowed')
+                if (isContextError) {
+                    console.warn(`[UserApi] ${fullApiInfo.name} 触发 vm2 安全限制，需要用户确认`)
+                    throw new Error('REQUIRE_UNSAFE_VM')
+                }
+                throw e
+            }
+        }
 
         // 等待脚本调用 lx.send('inited')（最多等待 3 秒）
         console.log(`[UserApi] Waiting for ${fullApiInfo.name} to initialize...`)
@@ -252,11 +345,12 @@ export async function loadUserApi(apiInfo: UserApiInfo): Promise<any> {
                     throw new Error(`No request handler for ${fullApiInfo.name}`)
                 }
 
-                return await handler({
+                const result = await handler({
                     action,
                     source,
                     info
                 })
+                return decontextify(result)
             }
         }
 
@@ -266,8 +360,11 @@ export async function loadUserApi(apiInfo: UserApiInfo): Promise<any> {
         return { success: true, apiInstance, error: null }
     } catch (error: any) {
         console.error(`[UserApi] ✗ 加载失败 ${fullApiInfo.name}:`, error.message)
+        if (error.stack && error.message !== 'REQUIRE_UNSAFE_VM') {
+            console.error(`[UserApi] [Stack] ${fullApiInfo.name}:`, error.stack)
+        }
         // 返回详细错误信息而不是直接抛出
-        return { success: false, apiInstance: null, error: error.message }
+        return { success: false, apiInstance: null, error: error.message, requireUnsafe: error.message === 'REQUIRE_UNSAFE_VM' }
     }
 }
 
@@ -477,6 +574,7 @@ async function loadSourcesFromDir(dirPath: string, owner: string, stats: { loade
                     script,
                     sources: {},
                     enabled: true,
+                    allowUnsafeVM: source.allowUnsafeVM, // 传递不安全模式标志
                     owner: owner // 设置 owner
                 })
 

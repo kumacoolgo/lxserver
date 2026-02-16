@@ -18,25 +18,25 @@
         }
     },
     {
-        "comment": "=== 版本更新 v1.3.1 ===",
-        "id": "update_v1_3_1",
+        "comment": "=== 版本更新 v1.3.2 ===",
+        "id": "update_v1_3_2",
         "status": "active",
         "type": "version",
         "logic": {
-            "target_version": "v1.3.1",
+            "target_version": "v1.3.2",
             "operator": "<",
             "interval_hours": 24
         },
         "ui": {
-            "title": "发现新版本 v1.3.1",
-            "date": "2026-02-11",
-            "message": "本次更新致力于交互细节与听感体验：\n1. 新增侧边栏封面展示开关，自由定义布局\n2. 新增音量“淡入淡出”功能，切换歌曲更顺滑\n3. 优化进度条拖拽体验，引入防抖消除复读感\n4. 修复收藏夹音质识别问题，还原Hi-Res质感\n5. 修复长歌名显示不全及详情页按钮淡化干扰",
+            "title": "发现新版本 v1.3.2",
+            "date": "2026-02-16",
+            "message": "本次更新引入了全新的脚本加载机制与翻译支持：\n1. 引入“混合 VM”脚本加载机制，大幅提升自定义源兼容性\n2. 新增歌词翻译与罗马音支持，可同时展示三条轨道\n3. 优化脚本元数据解析，支持更多注释格式且智能补全版本号\n4. 修复管理控制台密码修改功能及模态框 UI 样式问题",
             "confirm_text": "去查看",
             "cancel_text": "稍后提醒"
         },
         "action": {
             "type": "link",
-            "url": "https://github.com/XCQ0607/lxserver/releases/tag/v1.3.1"
+            "url": "https://github.com/XCQ0607/lxserver/releases/tag/v1.3.2"
         }
     }
 ]

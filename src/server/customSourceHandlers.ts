@@ -52,8 +52,13 @@ export async function handleValidate(req: IncomingMessage, res: ServerResponse) 
                 sourcesCount
             }))
         } else {
-            res.writeHead(400, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ valid: false, error: result.error }))
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({
+                valid: false,
+                error: result.error,
+                requireUnsafe: result.requireUnsafe,
+                metadata // 即使验证失败也返回元数据，方便前端展示
+            }))
         }
     } catch (err: any) {
         res.writeHead(400, { 'Content-Type': 'application/json' })
@@ -62,28 +67,32 @@ export async function handleValidate(req: IncomingMessage, res: ServerResponse) 
 }
 
 // 辅助函数：获取脚本信息（元数据和支持的源）
-async function getScriptInfo(scriptContent: string) {
+async function getScriptInfo(scriptContent: string, allowUnsafeVM: boolean = false) {
     const metadata = extractMetadata(scriptContent)
 
     // 试运行脚本以获取支持的源
     let supportedSources: string[] = []
+    let requireUnsafe = false
     try {
         const result = await loadUserApi({
             id: 'temp_analysis_' + Date.now(),
             script: scriptContent,
             enabled: false,
+            allowUnsafeVM,
             ...metadata,
             owner: 'temp'
         } as any)
 
         if (result.success && result.apiInstance?.info?.sources) {
             supportedSources = Object.keys(result.apiInstance.info.sources)
+        } else {
+            requireUnsafe = !!result.requireUnsafe
         }
-    } catch (e) {
-        console.warn('[CustomSource] 分析脚本支持源失败:', e)
+    } catch (e: any) {
+        console.warn('[CustomSource] 分析脚本支持源失败:', e.message)
     }
 
-    return { metadata, supportedSources }
+    return { metadata, supportedSources, requireUnsafe }
 }
 
 // 辅助函数：获取源存储目录
@@ -98,7 +107,7 @@ function getSourceDir(username?: string) {
 export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     try {
         const body = await readBody(req)
-        const { filename, content, username } = JSON.parse(body)
+        const { filename, content, username, allowUnsafeVM } = JSON.parse(body)
 
         // 确定 owner 用于后续标识
         const targetOwner = (username && username !== 'default') ? username : 'open'
@@ -112,7 +121,14 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
         }
 
         // 获取脚本信息
-        const { metadata, supportedSources } = await getScriptInfo(content)
+        const { metadata, supportedSources, requireUnsafe } = await getScriptInfo(content, allowUnsafeVM)
+
+        // 如果检测到需要不安全模式但未提供标志，则要求确认
+        if (requireUnsafe && !allowUnsafeVM) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: false, requireUnsafe: true, message: '该脚本需要原生 VM 模式运行，可能存在安全风险，是否继续？' }))
+            return
+        }
 
         // 生成唯一ID
         const id = `${encodeURIComponent(metadata.name || filename)}`
@@ -137,14 +153,16 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
         sources.push({
             id,
             name: metadata.name || filename,
-            version: metadata.version,
-            author: metadata.author,
-            description: metadata.description,
-            homepage: metadata.homepage,
+            version: metadata.version || '1.0.0',
+            author: metadata.author || '未知',
+            description: metadata.description || '',
+            homepage: metadata.homepage || '',
             size: Buffer.byteLength(content, 'utf-8'),
             supportedSources, // 保存支持的源
             enabled: false, // 默认禁用
-            uploadTime: new Date().toISOString()
+            uploadTime: new Date().toISOString(),
+            allowUnsafeVM: !!requireUnsafe || !!allowUnsafeVM,
+            requireUnsafe: !!requireUnsafe
         })
 
         fs.writeFileSync(metaPath, JSON.stringify(sources, null, 2))
@@ -153,7 +171,7 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
         await initUserApis(targetOwner)
 
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ success: true, id, metadata, supportedSources, owner: targetOwner }))
+        res.end(JSON.stringify({ success: true, id, metadata, supportedSources, owner: targetOwner, allowUnsafeVM: !!requireUnsafe || !!allowUnsafeVM }))
     } catch (err: any) {
         console.error('[CustomSource] Upload error:', err)
         res.writeHead(500, { 'Content-Type': 'application/json' })
@@ -165,7 +183,7 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
 export async function handleImport(req: IncomingMessage, res: ServerResponse) {
     try {
         const body = await readBody(req)
-        const { url, filename, username } = JSON.parse(body)
+        const { url, filename, username, allowUnsafeVM } = JSON.parse(body)
 
         if (!url) {
             throw new Error('Missing URL')
@@ -185,7 +203,14 @@ export async function handleImport(req: IncomingMessage, res: ServerResponse) {
         })
 
         // 获取脚本信息
-        const { metadata, supportedSources } = await getScriptInfo(content)
+        const { metadata, supportedSources, requireUnsafe } = await getScriptInfo(content, allowUnsafeVM)
+
+        // 如果检测到需要不安全模式但未提供标志，则要求确认
+        if (requireUnsafe && !allowUnsafeVM) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: false, requireUnsafe: true, message: '该脚本需要原生 VM 模式运行，可能存在安全风险，是否继续？' }))
+            return
+        }
 
         const targetOwner = (username && username !== 'default') ? username : 'open'
         const sourcesDir = getSourceDir(username)
@@ -220,15 +245,17 @@ export async function handleImport(req: IncomingMessage, res: ServerResponse) {
         sources.push({
             id,
             name: metadata.name || filename,
-            version: metadata.version,
-            author: metadata.author,
-            description: metadata.description,
-            homepage: metadata.homepage,
+            version: metadata.version || '1.0.0',
+            author: metadata.author || '未知',
+            description: metadata.description || '',
+            homepage: metadata.homepage || '',
             size: Buffer.byteLength(content, 'utf-8'),
             supportedSources, // 保存支持的源
             enabled: false,
             uploadTime: new Date().toISOString(),
-            sourceUrl: url
+            sourceUrl: url,
+            allowUnsafeVM: !!requireUnsafe || !!allowUnsafeVM,
+            requireUnsafe: !!requireUnsafe
         })
 
         fs.writeFileSync(metaPath, JSON.stringify(sources, null, 2))
@@ -237,7 +264,7 @@ export async function handleImport(req: IncomingMessage, res: ServerResponse) {
         await initUserApis(targetOwner)
 
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ success: true, filename: displayName, id, metadata, supportedSources, owner: targetOwner }))
+        res.end(JSON.stringify({ success: true, filename: displayName, id, metadata, supportedSources, owner: targetOwner, allowUnsafeVM: !!requireUnsafe || !!allowUnsafeVM }))
     } catch (err: any) {
         console.error('[CustomSource] Import error:', err)
         res.writeHead(500, { 'Content-Type': 'application/json' })
@@ -299,15 +326,12 @@ export async function handleList(req: IncomingMessage, res: ServerResponse, user
 }
 
 // 启用/禁用
+// 启用/禁用
 export async function handleToggle(req: IncomingMessage, res: ServerResponse) {
     try {
         const body = await readBody(req)
-        const { id, sourceId, enabled, username } = JSON.parse(body)
+        const { id, sourceId, enabled, username, allowUnsafeVM } = JSON.parse(body)
         const targetId = id || sourceId
-
-        // 这里的 username 指的是操作者/Owner。
-        // 我们会先检查 targetOwner 是否有该源
-        // 如果 targetOwner 目录下没有，且 targetOwner 不是 open，则去 open 下找
 
         let targetOwner = (username && username !== 'default') ? username : 'open'
         let sourcesDir = getSourceDir(targetOwner)
@@ -316,10 +340,11 @@ export async function handleToggle(req: IncomingMessage, res: ServerResponse) {
         if (!fs.existsSync(metaPath) && targetOwner !== 'open') {
             // 尝试 fallback 到 open
             const openSourcesDir = getSourceDir('open')
-            if (fs.existsSync(path.join(openSourcesDir, 'sources.json'))) {
+            const openMetaPath = path.join(openSourcesDir, 'sources.json')
+            if (fs.existsSync(openMetaPath)) {
                 targetOwner = 'open'
                 sourcesDir = openSourcesDir
-                metaPath = path.join(sourcesDir, 'sources.json')
+                metaPath = openMetaPath
             }
         }
 
@@ -331,41 +356,27 @@ export async function handleToggle(req: IncomingMessage, res: ServerResponse) {
         const target = sources.find((s: any) => s.id === targetId)
 
         if (!target) {
-            // 如果在当前 presumed owner 下找不到，且不是 open，再试一次 open
-            if (targetOwner !== 'open') {
-                const openSourcesDir = getSourceDir('open')
-                const openMetaPath = path.join(openSourcesDir, 'sources.json')
-
-                if (fs.existsSync(openMetaPath)) {
-                    const openSources = JSON.parse(fs.readFileSync(openMetaPath, 'utf-8'))
-                    const openTarget = openSources.find((s: any) => s.id === targetId)
-                    if (openTarget) {
-                        // Found in open
-                        targetOwner = 'open'
-                        // Recursive call or copy logic? Copy logic for simplicity
-                        openTarget.enabled = enabled !== undefined ? enabled : !openTarget.enabled
-                        fs.writeFileSync(openMetaPath, JSON.stringify(openSources, null, 2))
-                        await initUserApis('open')
-
-                        res.writeHead(200, { 'Content-Type': 'application/json' })
-                        res.end(JSON.stringify({ success: true, enabled: openTarget.enabled }))
-                        return
-                    }
-                }
-            }
             throw new Error('源不存在')
         }
 
         target.enabled = enabled !== undefined ? enabled : !target.enabled
+        if (allowUnsafeVM !== undefined) target.allowUnsafeVM = allowUnsafeVM
 
         fs.writeFileSync(metaPath, JSON.stringify(sources, null, 2))
 
         // 重新加载
-        await initUserApis(targetOwner)
-
-        console.log(`[CustomSource] Toggle complete for ${targetId} (${targetOwner})`);
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ success: true, enabled: target.enabled }))
+        try {
+            await initUserApis(targetOwner)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: true, enabled: target.enabled }))
+        } catch (e: any) {
+            if (e.message === 'REQUIRE_UNSAFE_VM') {
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ success: false, requireUnsafe: true, message: '该脚本需要原生 VM 模式运行，可能存在安全风险，是否继续？' }))
+                return
+            }
+            throw e
+        }
     } catch (err: any) {
         console.error('[CustomSource] Toggle error:', err)
         res.writeHead(500)

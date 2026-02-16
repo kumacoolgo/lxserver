@@ -3611,7 +3611,7 @@ async function handleFileUpload(input) {
             body: JSON.stringify({ script: content })
         }).then(r => r.json());
 
-        if (!validation.valid) {
+        if (!validation.valid && !validation.requireUnsafe) {
             showError(`脚本无效: ${validation.error}`);
             input.value = '';
             // document.getElementById('file-name-display').textContent = '点击选择 .js 文件';
@@ -3619,10 +3619,22 @@ async function handleFileUpload(input) {
         }
 
         // 验证通过，上传
-        showInfo(`验证通过，正在上传 "${validation.metadata.name}"...`);
-        await uploadCustomSource(file.name, content, 'file');
+        showInfo(`验证通过，正在上传 "${validation.metadata.name || file.name}"...`);
+        let result = await uploadCustomSource(file.name, content, 'file');
 
-        showSuccess(`已上传: ${validation.metadata.name} v${validation.metadata.version}`);
+        // 如果需要不安全模式确认
+        if (result.requireUnsafe) {
+            const confirmed = await showSelect('安全风险确认', result.message || '该脚本需要原生 VM 模式运行，可能存在安全风险，是否继续？', { danger: true, confirmText: '允许并上传' });
+            if (confirmed) {
+                result = await uploadCustomSource(file.name, content, 'file', true);
+            } else {
+                showInfo('已取消上传');
+                input.value = '';
+                return;
+            }
+        }
+
+        showSuccess(`已上传: ${validation.metadata.name || file.name} ${validation.metadata.version ? (/^v/i.test(validation.metadata.version) ? validation.metadata.version : 'v' + validation.metadata.version) : ''}`);
 
         // 重置输入
         input.value = '';
@@ -3669,12 +3681,29 @@ async function handleUrlImport() {
             })
         });
 
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(error || `HTTP ${response.status}`);
+        let result = await response.json();
+
+        // 如果需要不安全模式确认
+        if (result.requireUnsafe) {
+            const confirmed = await showSelect('安全风险确认', result.message || '该脚本需要原生 VM 模式运行，可能存在安全风险，是否继续？', { danger: true, confirmText: '允许并导入' });
+            if (confirmed) {
+                const retryResp = await fetch(`/api/custom-source/import`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url,
+                        filename,
+                        username: currentListData?.username || 'default',
+                        allowUnsafeVM: true
+                    })
+                });
+                result = await retryResp.json();
+            } else {
+                showInfo('已取消导入');
+                return;
+            }
         }
 
-        const result = await response.json();
         showSuccess(`已导入: ${result.filename}`);
 
         // 刷新源列表
@@ -3686,7 +3715,7 @@ async function handleUrlImport() {
 }
 
 // 上传自定义源到服务器
-async function uploadCustomSource(filename, content, type) {
+async function uploadCustomSource(filename, content, type, allowUnsafeVM = false) {
     const response = await fetch('/api/custom-source/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3694,7 +3723,8 @@ async function uploadCustomSource(filename, content, type) {
             filename,
             content,
             type,
-            username: currentListData?.username || 'default' // 使用当前登录用户
+            username: currentListData?.username || 'default', // 使用当前登录用户
+            allowUnsafeVM
         })
     });
 
@@ -3866,7 +3896,7 @@ async function renderCustomSources() {
                     <div class="flex items-center text-[10px] text-gray-400 space-x-2 mt-1">
                         <span><i class="fas fa-user mr-1"></i>${source.author || '未知'}</span>
                         <span class="hidden sm:inline"><i class="far fa-hdd mr-1"></i>${size}</span>
-                        <span class="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded shrink-0">v${source.version}</span>
+                        <span class="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded shrink-0">${source.version ? (/^v/i.test(source.version) ? source.version : 'v' + source.version) : '未知'}</span>
                     </div>
                     ${supportedBadges}
                 </div>
@@ -3931,16 +3961,28 @@ async function reloadSource(sourceId) {
 }
 
 // 切换状态
-async function toggleSource(sourceId, currentEnabled) {
+async function toggleSource(sourceId, currentEnabled, allowUnsafeVM = false) {
     try {
         const username = currentListData?.username || 'default';
         const response = await fetch('/api/custom-source/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, sourceId, enabled: !currentEnabled }) // Send new state
+            body: JSON.stringify({ username, sourceId, enabled: !currentEnabled, allowUnsafeVM }) // Send new state
         });
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const result = await response.json();
+
+        // 处理 REQUIRE_UNSAFE_VM
+        if (result.requireUnsafe) {
+            const confirmed = await showSelect('安全风险确认', result.message || '该脚本需要原生 VM 模式运行，可能存在安全风险，是否继续？', { danger: true, confirmText: '依然启用' });
+            if (confirmed) {
+                return await toggleSource(sourceId, currentEnabled, true);
+            } else {
+                return;
+            }
+        }
 
         // 刷新列表
         await renderCustomSources();
