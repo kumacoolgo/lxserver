@@ -604,6 +604,31 @@ class App {
         document.getElementById('edit-password-modal').classList.remove('hidden');
     }
 
+    // 保存新密码
+    async saveNewPassword() {
+        const newPassword = document.getElementById('edit-password-input').value;
+        if (!newPassword) {
+            alert('请填写新密码');
+            return;
+        }
+
+        try {
+            await this.request('/api/users', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    name: this.editingUser,
+                    password: newPassword
+                })
+            });
+
+            document.getElementById('edit-password-modal').classList.add('hidden');
+            this.loadUsers();
+            alert('密码修改成功');
+        } catch (err) {
+            alert('修改失败: ' + err.message);
+        }
+    }
+
     async deleteUser(index) {
         const user = this.users[index];
         if (!user) return;

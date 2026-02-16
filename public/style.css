@@ -125,23 +125,47 @@ body {
     font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
 }
 
 .btn-primary:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+    filter: brightness(1.1);
 }
 
-.error-msg {
-    color: var(--accent-error);
-    font-size: 0.875rem;
-    min-height: 1.5em;
-    margin-top: 0.75rem;
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+.btn-secondary {
+    padding: 0.875rem 1.5rem;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    color: var(--text-primary);
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+.btn-secondary:active {
+    transform: translateY(0);
 }
 
 /* =============== 主应用布局 =============== */
@@ -189,8 +213,10 @@ body {
     overflow-y: auto;
     min-height: 0;
     /* Hide scrollbar for Chrome, Safari and Opera */
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
 }
 
 .sidebar-nav::-webkit-scrollbar {
@@ -668,28 +694,7 @@ body {
     border-top: 1px solid var(--glass-border);
 }
 
-.btn-secondary {
-    padding: 0.75rem 1.5rem;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid var(--glass-border);
-    border-radius: 8px;
-    color: var(--text-primary);
-    font-weight: 500;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    transition: all 0.3s ease;
-}
-
-.btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.btn-secondary svg {
-    width: 18px;
-    height: 18px;
-}
+/* btn-secondary removed from here as it is now defined globally at the top */
 
 /* =============== 日志查看 =============== */
 .logs-content {
@@ -812,24 +817,44 @@ select.form-input option:checked {
     font-weight: 600;
 }
 
-.modal-close {
+.modal-header .modal-close {
     width: 32px;
     height: 32px;
     border-radius: 8px;
     border: none;
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-primary);
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transition: all 0.3s ease;
 }
 
-.modal-close:hover {
+.modal-header .modal-close:hover {
     background: rgba(255, 255, 255, 0.1);
 }
 
 .modal-body {
     color: var(--text-primary);
+    margin-bottom: 2rem;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.modal-footer .btn-primary,
+.modal-footer .btn-secondary {
+    width: auto;
+    min-width: 110px;
+    padding: 0.875rem 1.5rem !important;
+    /* Force consistency regardless of mobile media queries */
+    font-size: 0.95rem;
 }
 
 /* =============== 动画 =============== */
@@ -2163,48 +2188,7 @@ select.form-input option:checked {
 
 /* =============== 模态框底部按钮布局修复 =============== */
 
-.modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    /* 按钮靠右对齐 */
-    gap: 1rem;
-    /* 按钮之间的间距 */
-    margin-top: 2rem;
-    /* 与上方输入框的间距 */
-}
-
-/* 修复模态框中主按钮宽度过大的问题 */
-.modal-footer .btn-primary {
-    width: auto;
-    /* 取消默认的 100% 宽度 */
-    min-width: 100px;
-    /* 设置一个最小宽度 */
-    padding: 0.75rem 1.5rem;
-    /* 确保内边距一致 */
-}
-
-/* 确保取消按钮样式一致 */
-.modal-footer .btn-secondary {
-    width: auto;
-    min-width: 80px;
-    justify-content: center;
-    /* 文字居中 */
-}
-
-/* 移动端适配：在小屏幕上按钮可能需要堆叠或平分 */
-@media (max-width: 480px) {
-    .modal-footer {
-        flex-direction: row;
-        /* 保持水平排列 */
-    }
-
-    .modal-footer .btn-primary,
-    .modal-footer .btn-secondary {
-        flex: 1;
-        /* 小屏幕上两个按钮平分宽度 */
-        width: 100%;
-    }
-}
+/* modal-footer buttons now globally defined above */
 
 /* =============== 修复输入框自动填充样式 =============== */
 /* 强制覆盖浏览器自动填充的白色背景 */
