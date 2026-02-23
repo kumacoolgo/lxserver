@@ -65,7 +65,8 @@ let settings = {
     serverCacheLocation: 'root', // 缓存位置: 'data' (synced) or 'root' (local)
     enableLyricCache: true,
     enableSongUrlCache: true,
-    enableLyricGlow: true // 歌词荧光效果 (默认开启)
+    enableLyricGlow: true, // 歌词荧光效果 (默认开启)
+    playerBackground: 'blur' // 播放页背景: 'blur', 'solid', 'dark'
 };
 
 // 歌词原始数据，用于设置切换时重新渲染
@@ -2778,6 +2779,10 @@ function updateSetting(key, value) {
             if (el) el.innerText = value;
         }
     }
+
+    if (key === 'playerBackground') {
+        applyPlayerBackground(value);
+    }
 }
 
 function syncSettingsUI(key = null, value = null) {
@@ -2893,11 +2898,24 @@ function syncSettingsUI(key = null, value = null) {
             }
         }
 
+        if (key === 'playerBackground') {
+            const select = document.getElementById('setting-player-background');
+            if (select) select.value = value;
+            applyPlayerBackground(value);
+        }
+
         // 如果有其他需要实时更新的设置，可以在这里添加
         return;
     }
 
     // 否则，同步所有 UI 状态
+    // 背景设置
+    const backgroundSelect = document.getElementById('setting-player-background');
+    if (backgroundSelect) {
+        backgroundSelect.value = settings.playerBackground || 'blur';
+    }
+    applyPlayerBackground(settings.playerBackground || 'blur');
+
     // 逻辑页签设置
     const switchSearch = document.getElementById('setting-switch-playlist-search');
     if (switchSearch) {
@@ -3012,6 +3030,38 @@ function syncSettingsUI(key = null, value = null) {
 
     // 更新服务器缓存统计
     updateServerCacheSize();
+}
+
+/**
+ * 应用播放页背景样式
+ * @param {string} mode - 'blur', 'solid', 'dark'
+ */
+function applyPlayerBackground(mode) {
+    const detailBg = document.getElementById('view-player-detail');
+    const bgCover = document.getElementById('detail-bg-cover');
+    const bgOverlay = document.getElementById('player-detail-bg-overlay');
+    if (!detailBg || !bgCover || !bgOverlay) return;
+
+    console.log(`[PlayerBackground] Applying style: ${mode}`);
+
+    // 重置默认状态
+    bgCover.style.display = 'block';
+    bgOverlay.className = 'absolute inset-0 t-bg-panel/30 backdrop-blur-3xl';
+    bgOverlay.style.backgroundColor = '';
+    bgOverlay.style.backdropFilter = '';
+    detailBg.style.backgroundColor = '';
+
+    if (mode === 'solid') {
+        bgCover.style.display = 'none';
+        bgOverlay.className = 'absolute inset-0 t-bg-panel';
+        bgOverlay.style.backdropFilter = 'none';
+    } else if (mode === 'dark') {
+        bgCover.style.display = 'none';
+        bgOverlay.className = 'absolute inset-0';
+        bgOverlay.style.backgroundColor = '#000000';
+        bgOverlay.style.backdropFilter = 'none';
+    }
+    // 'blur' 模式由上面的重置逻辑处理
 }
 
 // ========== 缓存统计与重置逻辑 ==========
@@ -6367,14 +6417,16 @@ function toggleDetailCover() {
         cover.style.display = 'none'; // 彻底移除渲染占位
         cover.classList.add('opacity-0', 'scale-90', 'border-0');
 
-        // 移除容器所有可能的间距，确保歌词可以完美水平居中
-        container.classList.remove('gap-4', 'md:gap-20', 'md:gap-14');
+        // 隐藏封面时，不再需要那么大的 pt-8/md:pt-32。
+        // 保留 md:pt-10 左右以避开顶部 Now Playing 即可，让歌词有更多纵向空间
         container.classList.remove('pt-8', 'mt-4', 'md:pt-0', 'md:pt-24');
-        container.classList.add('pt-8', 'md:pt-32');
+        container.classList.add('pt-4', 'md:pt-10');
 
         if (lyricsWrapper) {
             lyricsWrapper.classList.remove('md:w-auto', 'md:max-w-[50%]', 'md:w-[500px]', 'lg:w-[600px]', 'flex-shrink-0');
             lyricsWrapper.classList.add('md:w-2/3', 'mx-auto', 'lyrics-centered');
+            // 隐藏封面时允许歌词区域更高
+            lyricsWrapper.style.maxHeight = '85vh';
         }
 
         if (lyricContent) {
@@ -6396,18 +6448,21 @@ function toggleDetailCover() {
 
         container.classList.remove('has-centered-lyrics');
 
-        // 恢复当前使用的固定间距 (注意，这里只针对显示封面的状态进行恢复)
+        // 恢复当前使用的固定间距
         container.classList.add('gap-4', 'md:gap-20');
-        container.classList.remove('pt-8', 'md:pt-32'); // 移除纯歌词专用间距
+        container.classList.remove('pt-8', 'md:pt-32', 'md:pt-10'); // 移除纯歌词专用间距
 
-        // 【关键修复】手机端带封面恢复为比较靠上的 pt-8 mt-4。桌面端具体是 md:pt-0 还是 md:pt-24 会被 togglePlayerPanel 状态控制，这里不再暴力强制覆盖 md:pt-24
-        container.classList.add('pt-8', 'mt-4');
+        // 手机端恢复默认 pt
+        if (window.innerWidth < 768) {
+            container.classList.add('pt-8', 'mt-4');
+        }
 
 
         if (lyricsWrapper) {
             lyricsWrapper.classList.remove('md:w-auto', 'md:max-w-[50%]', 'md:w-2/3', 'mx-auto', 'lyrics-centered');
             // 锁定桌面端宽度，防止长短歌词导致封面抖动
             lyricsWrapper.classList.add('md:w-[500px]', 'lg:w-[600px]', 'flex-shrink-0');
+            lyricsWrapper.style.maxHeight = ''; // 恢复默认值
         }
 
         if (lyricContent) {
@@ -6499,7 +6554,7 @@ function togglePlayerPanel() {
         // 桌面端: 恢复 md:pt-0 (垂直居中, 无顶部Padding)
         if (container) {
             container.classList.remove('translate-y-12', 'opacity-80', 'scale-95');
-            container.classList.remove('md:pt-24');
+            container.classList.remove('md:pt-24', 'md:pt-12');
             container.classList.add('md:pt-0');
         }
     } else {

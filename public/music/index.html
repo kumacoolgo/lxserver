@@ -1341,6 +1341,29 @@
                                         </div>
                                     </div>
 
+                                    <!-- Player Background Style -->
+                                    <div
+                                        class="t-bg-panel rounded-xl border t-border-main p-4 hover:shadow-sm transition-shadow">
+                                        <h3 class="font-bold t-text-main text-sm mb-3 flex items-center">
+                                            <i class="fas fa-image mr-2 text-emerald-500"></i> 歌曲播放页背景 (Player
+                                            Background)
+                                        </h3>
+                                        <div class="flex flex-col md:flex-row md:items-center justify-between">
+                                            <div class="text-xs text-gray-500 mb-2 md:mb-0 md:mr-4">
+                                                设置歌曲播放详情页背景的显示风格
+                                            </div>
+                                            <div class="w-full md:w-48">
+                                                <select id="setting-player-background"
+                                                    onchange="updateSetting('playerBackground', this.value)"
+                                                    class="w-full p-1.5 border t-border-main rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                                                    <option value="blur">封面虚化 (Blurred Cover)</option>
+                                                    <option value="solid">纯色背景 (Solid Color)</option>
+                                                    <option value="dark">黑色背景 (Pure Black)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <!-- Sidebar Info Toggle -->
                                     <div
                                         class="t-bg-panel rounded-xl border t-border-main p-4 hover:shadow-sm transition-shadow">
@@ -1805,7 +1828,7 @@
         <div class="absolute inset-0 overflow-hidden">
             <img id="detail-bg-cover" src=""
                 class="w-full h-full object-cover filter blur-[60px] opacity-40 scale-125 transition-opacity duration-1000">
-            <div class="absolute inset-0 t-bg-panel/30 backdrop-blur-3xl"></div>
+            <div id="player-detail-bg-overlay" class="absolute inset-0 t-bg-panel/30 backdrop-blur-3xl"></div>
             <!-- Detail Visualizer Canvas (Raised to avoid being blocked by footer) -->
             <canvas id="detail-visualizer"
                 class="absolute bottom-24 left-0 w-full h-[calc(100vh-6rem)] pointer-events-none opacity-30"></canvas>
@@ -1830,7 +1853,7 @@
 
             <!-- Left: Image -->
             <div id="mobile-player-cover-container"
-                class="w-auto h-auto max-w-[48vw] max-h-[32vh] [@media(max-height:500px)]:max-h-[40vh] aspect-square md:w-[60vh] md:h-[60vh] md:max-w-[35rem] md:max-h-[35rem] md:min-w-[20rem] md:min-h-[20rem] flex-shrink-0 shadow-[0_20px_50px_rgba(0,0,0,0.3)] rounded-3xl overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] border-4 border-white/20 origin-top t-bg-track">
+                class="w-auto h-auto max-w-[48vw] max-h-[32vh] [@media(max-height:500px)]:max-h-[40vh] aspect-square md:w-[60vh] md:h-[60vh] md:max-w-[35rem] md:max-h-[35rem] md:min-w-[20rem] md:min-h-[20rem] flex-shrink-0 shadow-2xl rounded-3xl overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] border-4 border-white/20 origin-top t-bg-track">
                 <img id="detail-cover" src="/music/assets/logo.svg" onerror="this.src='/music/assets/logo.svg'"
                     class="w-full h-full object-cover">
             </div>

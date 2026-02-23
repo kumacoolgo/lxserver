@@ -103,6 +103,32 @@
 
         const styleConfig = getStyleConfig(item.type, item.ui.title || '');
 
+        // 版本信息展示逻辑
+        const currentVer = CONFIG.getLocalVersion();
+        const isVerRelated = item.type === 'version' || (item.id && item.id.includes('manual_check'));
+        let versionBadge = '';
+        if (isVerRelated) {
+            let targetVer = '未知';
+            if (item.logic && item.logic.target_version) {
+                targetVer = item.logic.target_version;
+            } else if (item.id === 'manual_check_uptodate') {
+                targetVer = currentVer;
+            }
+            versionBadge = `
+                <div style="display: flex; align-items: center; justify-content: space-around; gap: 12px; margin: 16px 0; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 12px; font-size: 13px;">
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px;">
+                        <span style="color: #6b7280; font-size: 10px; font-weight: 600; text-transform: uppercase;">当前版本</span>
+                        <span style="color: #111827; font-weight: 700;">${currentVer}</span>
+                    </div>
+                    <div style="width: 1px; height: 24px; background: rgba(0,0,0,0.1);"></div>
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px;">
+                        <span style="color: #6b7280; font-size: 10px; font-weight: 600; text-transform: uppercase;">最新版本</span>
+                        <span style="color: ${item.type === 'version' ? styleConfig.color : '#111827'}; font-weight: 700;">${targetVer}</span>
+                    </div>
+                </div>
+            `;
+        }
+
         const overlay = document.createElement('div');
         overlay.id = 'ph-notification-overlay';
         overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:99999;display:flex;justify-content:center;align-items:center;font-family:sans-serif;backdrop-filter:blur(4px);transition:opacity 0.3s;';
@@ -152,6 +178,7 @@
                 </div>
                 
                 <h3 style="margin:0 0 10px; color:var(--c-900, #111827); font-size:20px; font-weight:700; letter-spacing: -0.5px;">${title}</h3>
+                ${versionBadge}
                 ${item.ui.date ? `<p style="margin:0 0 8px; color:var(--c-500, #9ca3af); font-size:12px;">更新日期: ${item.ui.date}</p>` : ''}
                 <p style="margin:0; color:var(--c-600, #6b7280); font-size:15px; line-height:1.6;">${message.replace(/\n/g, '<br/>')}</p>
             </div>

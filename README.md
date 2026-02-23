@@ -29,26 +29,34 @@
 ## ✨ Web 播放器核心特性
 
 ### 1. 现代化界面
+
 采用清爽的现代化 UI 设计，支持深色模式，提供极致的视觉体验。
+
 <p align="center">
   <img src="md/player.png" width="800" alt="Web Player Interface">
 </p>
 
 ### 2. 多源搜索
+
 支持聚合搜索各大音乐平台的资源，想听什么搜什么。
+
 <p align="center">
   <img src="md/search.png" width="800" alt="Search Interface">
 </p>
 
 ### 3. 歌单同步
+
 与 LX Music 客户端数据完美互通，收藏的歌曲瞬间同步到 Web 端。
+
 <p align="center">
   <img src="md/sync.png" width="400" alt="Sync">
   <img src="md/favorite.png" width="400" alt="Favorite List">
 </p>
 
 ### 4. 强大的播放控制与设置
+
 支持播放模式切换、音质选择、歌词显示、睡眠定时、播放倍数等功能。
+
 <p align="center">
   <img src="md/controller.png" width="600" alt="Controller">
 </p>
@@ -67,13 +75,17 @@
 </div>
 
 ### 5. 自定义源管理
+
 支持导入自定义源脚本，扩展更多音乐来源。
+
 <p align="center">
   <img src="md/source.png" width="800" alt="Source Management">
 </p>
 
 ## 🔒 访问控制与安全
+
 为了保护你的隐私，Web 播放器支持开启访问密码。
+
 <p align="center">
   <img src="md/setting.png" width="800" alt="Auth Check">
 </p>
@@ -161,7 +173,6 @@ npm start
 | `WEBDAV_PASSWORD`       | `webdav.password`   | WebDAV 密码                                        | -                  |
 | `SYNC_INTERVAL`         | `sync.interval`     | WebDAV 自动备份间隔(分钟)                          | `60`             |
 | `ENABLE_WEBPLAYER_AUTH` | `player.enableAuth` | 是否启用 Web 播放器访问密码                        | `false`          |
-| `ENABLE_WEBPLAYER_AUTH` | `player.enableAuth` | 是否启用 Web 播放器访问密码                        | `false`          |
 | `WEBPLAYER_PASSWORD`    | `player.password`   | Web 播放器访问密码                                 | 123456             |
 | `DISABLE_TELEMETRY`     | `disableTelemetry`  | 是否禁用匿名数据统计，系统更新提示以及系统公告提示 | `false`          |
 
@@ -195,8 +206,6 @@ npm start
   </picture>
 </a>
 
-
 ## 📄 开源协议
 
 Apache License 2.0 copyright (c) 2026 [xcq0607](https://github.com/xcq0607)
-

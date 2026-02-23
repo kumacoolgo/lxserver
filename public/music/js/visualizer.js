@@ -164,14 +164,33 @@ const musicVisualizer = (function () {
                 audioContext.resume();
             }
 
-            // 调整内容区域的底部 Padding 以防被遮挡
+            // 调整内容区域的间距以防被遮挡
             const mainViews = document.querySelectorAll('#view-search, #view-favorites, #view-settings, #view-about, #view-player-detail');
             mainViews.forEach(view => {
-                view.style.transition = 'padding-bottom 0.3s ease';
-                // 激进压缩：在短屏下 Padding 适当保守，确保页面内容整体下移，给顶部留出空间
-                let padding = footerIsHidden ? '' : '200px';
-                if (!footerIsHidden && isShortWindow) padding = '130px';
-                view.style.paddingBottom = padding;
+                view.style.transition = 'padding-bottom 0.3s ease, padding-top 0.3s ease';
+                const isMobile = window.innerWidth < 768;
+                let pb = footerIsHidden ? '' : (isMobile ? '120px' : '180px');
+                if (!footerIsHidden && isShortWindow) pb = (isMobile ? '80px' : '120px');
+
+                if (view.id === 'view-player-detail') {
+                    // [Fix] 详情页特殊处理：使用容器 Margin 而不是视图 Padding，防止背景图层因 Padding 出现视觉断层（黑线）
+                    const container = view.querySelector('#player-detail-container');
+                    if (container) {
+                        const needsTopPadding = !footerIsHidden && window.innerWidth >= 768;
+                        container.style.marginTop = needsTopPadding ? '60px' : '';
+
+                        // [Important] 详情页父容器 view-player-detail 已有 pb-24 (96px)，
+                        // 此处的 margin-bottom 应扣除这部分，否则会导致歌词区域被过度压缩
+                        const extraPb = pb === '' ? '' : Math.max(0, parseInt(pb) - 96) + 'px';
+                        container.style.marginBottom = extraPb;
+                        container.style.transition = 'margin 0.3s ease';
+                    }
+                    view.style.paddingBottom = ''; // 确保详情页视图本身没有 Padding
+                    view.style.paddingTop = '';
+                } else {
+                    // 其他列表页继续使用 Padding
+                    view.style.paddingBottom = pb;
+                }
             });
 
             // 调整侧边栏底部 Padding
@@ -192,6 +211,12 @@ const musicVisualizer = (function () {
             const mainViews = document.querySelectorAll('#view-search, #view-favorites, #view-settings, #view-about, #view-player-detail');
             mainViews.forEach(view => {
                 view.style.paddingBottom = '';
+                const container = view.querySelector('#player-detail-container');
+                if (container) {
+                    container.style.marginTop = '';
+                    container.style.marginBottom = '';
+                }
+                view.style.paddingTop = '';
             });
             const sidebar = document.querySelector('aside');
             if (sidebar) {
