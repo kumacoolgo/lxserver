@@ -2109,7 +2109,7 @@
     </div>
 
     <!-- Player Detail View (Overlay) -->
-    <div id="view-player-detail"
+    <div id="view-player-detail" ondblclick="toggleDetailCover()"
         class="fixed inset-0 z-30 t-bg-panel hidden flex flex-col transform translate-y-[100%] opacity-0 pb-24">
         <!-- Blurry Background -->
         <div class="absolute inset-0 overflow-hidden">
@@ -2122,7 +2122,7 @@
         </div>
 
         <!-- Navbar / Controls -->
-        <div
+        <div onclick="event.stopPropagation()"
             class="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-6 h-20 pointer-events-none transition-all duration-300 [@media(max-height:500px)]:opacity-0 [@media(max-height:500px)]:pointer-events-none">
             <button onclick="toggleLyrics()" id="btn-toggle-lyrics"
                 class="pointer-events-auto t-text-muted hover:text-emerald-600 t-bg-panel/40 hover:t-bg-panel/80 rounded-full w-10 h-10 flex items-center justify-center transition-all shadow-sm backdrop-blur-md">
@@ -2139,8 +2139,8 @@
             class="relative z-10 flex-1 flex flex-col md:flex-row items-center justify-start md:justify-center gap-4 md:gap-20 pt-8 mt-4 md:mt-0 md:pt-0 pb-6 overflow-hidden transition-all duration-300 ease-out [@media(max-height:500px)]:pt-0 [@media(max-height:500px)]:justify-center">
 
             <!-- Left: Image -->
-            <div id="mobile-player-cover-container"
-                class="w-auto h-auto max-w-[48vw] max-h-[32vh] [@media(max-height:500px)]:max-h-[40vh] aspect-square md:w-[60vh] md:h-[60vh] md:max-w-[35rem] md:max-h-[35rem] md:min-w-[20rem] md:min-h-[20rem] flex-shrink-0 shadow-2xl rounded-3xl overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] border-4 border-white/20 origin-top t-bg-track">
+            <div id="mobile-player-cover-container" ondblclick="toggleDetailCover()"
+                class="w-auto h-auto max-w-[48vw] max-h-[32vh] [@media(max-height:500px)]:max-h-[40vh] aspect-square md:w-[60vh] md:h-[60vh] md:max-w-[35rem] md:max-h-[35rem] md:min-w-[20rem] md:min-h-[20rem] flex-shrink-0 shadow-2xl rounded-3xl overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] border-4 border-white/20 origin-top t-bg-track cursor-pointer">
                 <img id="detail-cover" src="/music/assets/logo.svg" onerror="this.src='/music/assets/logo.svg'"
                     class="w-full h-full object-cover">
             </div>
@@ -2149,18 +2149,22 @@
             <div id="lyrics-wrapper"
                 class="w-full md:w-[500px] lg:w-[600px] flex-1 min-h-0 md:flex-none md:h-full md:max-h-[70vh] flex flex-col relative transition-all duration-300 flex-shrink-0">
                 <!-- Song Info -->
-                <div class="mb-4 md:mb-8 text-center md:text-left px-4 md:pl-6 cursor-pointer transition-all duration-300 active:scale-95 select-none"
-                    onclick="toggleDetailCover()" title="点击标题隐藏封面">
+                <div class="mb-4 md:mb-8 text-center md:text-left px-4 md:pl-6 select-none transition-all duration-300 cursor-pointer"
+                    onclick="if(window.innerWidth < 768) { toggleDetailCover(); event.stopPropagation(); }">
                     <div id="detail-title-container" class="w-full overflow-hidden whitespace-nowrap mb-1">
                         <div id="detail-title"
-                            class="inline-block text-2xl md:text-4xl font-black t-text-main drop-shadow-sm min-w-full">
+                            class="inline-block text-2xl md:text-4xl font-black t-text-main drop-shadow-sm max-w-full truncate">
                             Song Name
                         </div>
                     </div>
-                    <div id="detail-artist" class="text-base md:text-xl t-text-muted font-medium truncate">Artist</div>
+                    <div id="detail-artist"
+                        class="inline-block text-base md:text-xl t-text-muted font-medium truncate max-w-full">Artist
+                    </div>
                     <div id="toggle-hint"
-                        class="md:hidden text-[10px] text-emerald-500/60 mt-2 font-mono tracking-widest opacity-80 transition-all duration-1000 overflow-hidden max-h-8">
-                        <i class="fas fa-chevron-up text-xs animate-bounce mr-1"></i>点击标题隐藏封面
+                        class="text-[10px] text-emerald-500/60 mt-2 font-mono tracking-widest opacity-80 transition-all duration-1000 overflow-hidden max-h-8">
+                        <i class="fas fa-chevron-up text-xs animate-bounce mr-1"></i>
+                        <span class="md:hidden">点击歌曲名称隐藏显示封面</span>
+                        <span class="hidden md:inline">双击空白区域隐藏显示封面</span>
                     </div>
                 </div>
 
@@ -2178,7 +2182,7 @@
                 </div>
 
                 <!-- Scrollable Lyrics Area -->
-                <div id="lyric-container"
+                <div id="lyric-container" onclick="event.stopPropagation()"
                     class="flex-1 w-full overflow-y-auto relative no-scrollbar mask-image-gradient"
                     onwheel="handleLyricScroll()">
 
@@ -2930,7 +2934,7 @@
         class="fixed inset-0 z-[70] hidden items-center justify-center p-4 md:p-6 transition-all duration-300">
         <div class="absolute inset-0 bg-black/20 backdrop-blur-sm" onclick="toggleCommentModal()"></div>
         <div id="comment-modal-content"
-            class="relative w-full max-w-2xl h-[85vh] md:h-[80vh] t-bg-panel/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/20 flex flex-col overflow-hidden transform translate-y-10 opacity-0 transition-all duration-500">
+            class="relative w-full max-w-2xl h-[85vh] md:h-[80vh] t-bg-panel rounded-3xl shadow-2xl border t-border-main flex flex-col overflow-hidden transform translate-y-10 opacity-0 transition-all duration-500">
             <!-- Header -->
             <div class="p-4 md:p-6 border-b t-border-main/50 flex items-center justify-between">
                 <div class="flex items-center gap-3">

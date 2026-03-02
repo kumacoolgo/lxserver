@@ -24,6 +24,7 @@ window.soundEffects = (function () {
     ];
     let customPresets = [];
     let isAddingPreset = false;
+    let activePresetName = ''; // Track which preset was explicitly clicked
 
     const reverbOptions = [
         { id: 'none', name: '关闭', source: null, main: 1.0, send: 0 },
@@ -348,11 +349,35 @@ window.soundEffects = (function () {
         // EQ Presets
         const presetContainer = document.getElementById('eq-presets');
         if (presetContainer) {
-            const allPresets = [...defaultPresets, ...customPresets];
-            let html = allPresets.map(p => `
-                <button class="px-3 py-1.5 text-[11px] font-bold rounded-lg border t-border-main transition-all ${settings.eq.join(',') === p.values.join(',') ? 'bg-emerald-500 text-white border-emerald-500 shadow-md shadow-emerald-500/20' : 't-bg-main t-text-muted hover:t-bg-item-hover'}"
+            // Render default presets
+            let html = defaultPresets.map(p => {
+                const isActive = activePresetName === p.name || (activePresetName === '' && settings.eq.join(',') === p.values.join(','));
+                return `
+                <button class="px-3 py-1.5 text-[11px] font-bold rounded-lg border t-border-main transition-all ${isActive ? 'bg-emerald-500 text-white border-emerald-500 shadow-md shadow-emerald-500/20' : 't-bg-main t-text-muted hover:t-bg-item-hover'}"
                     onclick="window.soundEffects.applyPreset('${p.name}')">${p.name}</button>
-            `).join('');
+            `;
+            }).join('');
+
+            // Render custom presets with edit/delete icons
+            html += customPresets.map(p => {
+                const isActive = activePresetName === p.name;
+                return `
+                <div class="relative group">
+                    <button class="px-3 py-1.5 pr-10 text-[11px] font-bold rounded-lg border t-border-main transition-all ${isActive ? 'bg-emerald-500 text-white border-emerald-500 shadow-md shadow-emerald-500/20' : 't-bg-main t-text-muted hover:t-bg-item-hover'}"
+                        onclick="window.soundEffects.applyPreset('${p.name}')">${p.name}</button>
+                    <div class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center transition-opacity">
+                        <button class="w-4 h-4 flex items-center justify-center text-[10px] text-gray-400 hover:text-emerald-500" 
+                            onclick="event.stopPropagation(); window.soundEffects.renameCustomPreset('${p.name}')" title="重命名">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="w-4 h-4 flex items-center justify-center text-[10px] text-gray-400 hover:text-red-500" 
+                            onclick="event.stopPropagation(); window.soundEffects.deleteCustomPreset('${p.name}')" title="删除">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            }).join('');
 
             if (isAddingPreset) {
                 html += `
@@ -495,6 +520,7 @@ window.soundEffects = (function () {
             val = parseInt(val);
             settings.eq[index] = val;
             if (eqFilters[index]) eqFilters[index].gain.setTargetAtTime(val, audioContext.currentTime, 0.1);
+            activePresetName = ''; // Reset when manually adjusted
             saveSettings();
             renderUI();
         },
@@ -503,6 +529,7 @@ window.soundEffects = (function () {
             const p = allPresets.find(p => p.name === name);
             if (p) {
                 settings.eq = [...p.values];
+                activePresetName = name; // Set active preset by name
                 settings.eq.forEach((v, i) => {
                     // Smoothly transition EQ gains
                     if (eqFilters[i]) eqFilters[i].gain.setTargetAtTime(v, audioContext.currentTime, 0.1);
@@ -514,6 +541,7 @@ window.soundEffects = (function () {
         },
         resetEQ: function () {
             settings.eq = Array(10).fill(0);
+            activePresetName = '';
             eqFilters.forEach(f => f.gain.setTargetAtTime(0, audioContext.currentTime, 0.1));
             saveSettings();
             renderUI();
@@ -600,11 +628,47 @@ window.soundEffects = (function () {
                     values: [...settings.eq]
                 };
                 customPresets.push(newPreset);
+                activePresetName = newName; // Mark new one as active
                 saveSettings();
                 if (window.showSuccess) window.showSuccess(`已添加预设: ${newName}`);
             }
             isAddingPreset = false;
             renderUI();
+        },
+        renameCustomPreset: async function (oldName) {
+            const preset = customPresets.find(p => p.name === oldName);
+            if (!preset) return;
+
+            const newName = await window.showInput('重命名预设', `请输入预设 "${oldName}" 的新名称`, {
+                defaultValue: oldName,
+                placeholder: '新名称...'
+            });
+
+            if (newName && newName.trim() && newName.trim() !== oldName) {
+                const name = newName.trim();
+                if ([...defaultPresets, ...customPresets].some(p => p.name === name)) {
+                    if (window.showError) window.showError('名称已存在');
+                    return;
+                }
+                if (activePresetName === oldName) activePresetName = name;
+                preset.name = name;
+                saveSettings();
+                renderUI();
+                if (window.showSuccess) window.showSuccess(`已重命名为: ${name}`);
+            }
+        },
+        deleteCustomPreset: async function (name) {
+            const confirmed = await window.showSelect('删除预设', `确认要删除预设 "${name}" 吗？`, {
+                danger: true,
+                confirmText: '立刻删除'
+            });
+            if (confirmed) {
+                if (activePresetName === name) activePresetName = '';
+                customPresets = customPresets.filter(p => p.name !== name);
+                saveSettings();
+                renderUI();
+                if (window.showSuccess) window.showSuccess(`已删除预设: ${name}`);
+            }
         },
         fetchFromServer: fetchFromServer,
         pushToServer: () => {

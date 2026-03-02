@@ -2138,9 +2138,15 @@ function updatePlayerInfo(song) {
         artistEl.classList.remove('overflow-hidden');
 
         // 点击搜索此歌手
-        artistEl.onclick = (e) => {
+        artistEl.onclick = async (e) => {
             e.stopPropagation();
-            performSearch(song.singer, song.source);
+            const singers = song.singer.split(/[、&,，]| \/ /).map(s => s.trim()).filter(s => s);
+            if (singers.length > 1) {
+                const selected = await showOptions('搜索歌手', '识别到多个歌手，请选择要搜索的对象：', singers);
+                if (selected) performSearch(selected, song.source);
+            } else {
+                performSearch(song.singer, song.source);
+            }
         };
         artistEl.classList.add('hover:text-emerald-500', 'cursor-pointer', 'transition-colors');
     }
@@ -2193,7 +2199,11 @@ function updatePlayerInfo(song) {
         detailTitle.classList.remove('animate-marquee');
         detailTitle.onclick = (e) => {
             e.stopPropagation();
-            performSearch(song.name, song.source);
+            if (window.innerWidth < 768) {
+                toggleDetailCover();
+            } else {
+                performSearch(song.name, song.source);
+            }
         };
         detailTitle.classList.add('hover:text-emerald-500', 'cursor-pointer', 'transition-colors');
     }
@@ -2201,9 +2211,20 @@ function updatePlayerInfo(song) {
     const detailArtist = document.getElementById('detail-artist');
     if (detailArtist) {
         detailArtist.innerText = song.singer;
-        detailArtist.onclick = (e) => {
+        detailArtist.onclick = async (e) => {
             e.stopPropagation();
-            performSearch(song.singer, song.source);
+            if (window.innerWidth < 768) {
+                toggleDetailCover();
+            } else {
+                // 处理多个歌手的情况
+                const singers = song.singer.split(/[、&,，]| \/ /).map(s => s.trim()).filter(s => s);
+                if (singers.length > 1) {
+                    const selected = await showOptions('搜索歌手', '识别到多个歌手，请选择要搜索的对象：', singers);
+                    if (selected) performSearch(selected, song.source);
+                } else {
+                    performSearch(song.singer, song.source);
+                }
+            }
         };
         detailArtist.classList.add('hover:text-emerald-500', 'cursor-pointer', 'transition-colors');
     }
@@ -6910,6 +6931,63 @@ function showSelect(title, message, options = {}) {
         modal.querySelector('div:first-child').onclick = () => close(false);
     });
 }
+
+/**
+ * 通用多选选择列表
+ */
+function showOptions(title, message, options = []) {
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.className = "fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in";
+
+        const optionsHtml = options.map(opt => `
+            <button class="w-full text-left px-4 py-3.5 t-text-main hover:bg-emerald-500 hover:text-white transition-all rounded-xl font-bold text-sm flex items-center justify-between group" data-value="${opt}">
+                <span>${opt}</span>
+                <i class="fas fa-chevron-right text-[10px] opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all"></i>
+            </button>
+        `).join('');
+
+        modal.innerHTML = `
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300"></div>
+            <div class="t-bg-panel rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all animate-slide-up relative z-10 border t-border-main">
+                <div class="px-5 py-4 border-b border-emerald-100/50 flex justify-between items-center bg-emerald-50/50">
+                    <h3 class="text-sm font-bold t-text-main">${title}</h3>
+                    <button id="opt-close-x" class="t-text-muted hover:text-emerald-500 transition-colors">
+                        <i class="fas fa-times text-lg"></i>
+                    </button>
+                </div>
+                <div class="p-3">
+                    <p class="px-3 py-2 text-xs t-text-muted mb-2 font-medium">${message}</p>
+                    <div class="max-h-[60vh] overflow-y-auto custom-scrollbar space-y-1">
+                        ${optionsHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const close = (result) => {
+            const content = modal.querySelector('.max-w-sm');
+            if (content) {
+                content.classList.add('scale-95', 'opacity-0');
+            }
+            modal.classList.add('opacity-0');
+            setTimeout(() => {
+                modal.remove();
+                resolve(result);
+            }, 200);
+        };
+
+        modal.querySelectorAll('button[data-value]').forEach(btn => {
+            btn.onclick = () => close(btn.getAttribute('data-value'));
+        });
+
+        modal.querySelector('#opt-close-x').onclick = () => close(null);
+        modal.querySelector('div:first-child').onclick = () => close(null);
+
+        document.body.appendChild(modal);
+    });
+}
+window.showOptions = showOptions;
 
 // 通用 Toast 显示函数 (支持宽屏、滚动文字、点击重置倒计时)
 function showToast(type, message, duration = 3000) {
