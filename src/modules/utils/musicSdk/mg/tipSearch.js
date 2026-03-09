@@ -7,17 +7,17 @@ export default {
   },
   tipSearchBySong(str) {
     this.cancelTipSearch()
-    this.requestObj = createHttpFetch(`https://music.migu.cn/v3/api/search/suggest?keyword=${encodeURIComponent(str)}`, {
-      headers: {
-        referer: 'https://music.migu.cn/v3',
-      },
-    })
+    this.requestObj = createHttpFetch(`https://app.u.nf.migu.cn/pc/resource/content/tone_search_suggest/v1.0?text=${encodeURIComponent(str)}`)
     return this.requestObj.then(body => {
-      return body.songs
+      if (body.code === '000000' && body.data) {
+        return body.data.songList || []
+      }
+      return []
     })
   },
   handleResult(rawData) {
-    return rawData.map(info => `${info.name} - ${info.singerName}`)
+    if (!rawData) return []
+    return rawData.map(info => info.songName)
   },
   async search(str) {
     return this.tipSearchBySong(str).then(result => this.handleResult(result))

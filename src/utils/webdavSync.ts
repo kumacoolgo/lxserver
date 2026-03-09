@@ -106,6 +106,13 @@ class WebDAVSync extends EventEmitter {
             }
         }
         scanDir(this.dataPath)
+
+        // [新增] 扫描根目录下的 config.js
+        const rootConfigPath = path.join(process.cwd(), 'config.js')
+        if (fs.existsSync(rootConfigPath)) {
+            files.set('config.js', this.getFileHash(rootConfigPath))
+        }
+
         return files
     }
 
@@ -129,7 +136,10 @@ class WebDAVSync extends EventEmitter {
         if (!this.client) return false
 
         try {
-            const localPath = path.join(this.dataPath, relativePath)
+            const isRootConfig = relativePath === 'config.js'
+            const localPath = isRootConfig ? path.join(process.cwd(), 'config.js') : path.join(this.dataPath, relativePath)
+            if (!fs.existsSync(localPath)) return false
+
             const stat = fs.statSync(localPath)
             const remotePath = `/lx-sync/${relativePath.replace(/\\/g, '/')}`
 
@@ -198,8 +208,8 @@ class WebDAVSync extends EventEmitter {
 
         try {
             const remotePath = `/lx-sync/${relativePath.replace(/\\/g, '/')}`
-            const content = await this.client.getFileContents(remotePath)
-            const localPath = path.join(this.dataPath, relativePath)
+            const isRootConfig = relativePath === 'config.js'
+            const localPath = isRootConfig ? path.join(process.cwd(), 'config.js') : path.join(this.dataPath, relativePath)
 
             // 确保本地目录存在
             const localDir = path.dirname(localPath)
@@ -207,7 +217,13 @@ class WebDAVSync extends EventEmitter {
                 fs.mkdirSync(localDir, { recursive: true })
             }
 
+            const content = await this.client.getFileContents(remotePath)
             fs.writeFileSync(localPath, content as any)
+
+            if (isRootConfig) {
+                console.log('config.js restored from WebDAV, restart may be required to take effect.')
+                // 这里可以发出事件提醒主进程，不过由于用户是手动触发恢复或启动时恢复，已经有重启逻辑覆盖
+            }
 
             this.addLog({
                 timestamp: Date.now(),
@@ -259,6 +275,13 @@ class WebDAVSync extends EventEmitter {
                     cwd: this.dataPath,
                     ignore: ['temp-*.zip', '*.log', 'lx-sync-backup-*.zip'],
                 })
+
+                // [新增] 将根目录下的 config.js 也打包进去
+                const rootConfigPath = path.join(process.cwd(), 'config.js')
+                if (fs.existsSync(rootConfigPath)) {
+                    archive.file(rootConfigPath, { name: 'config.js' })
+                }
+
                 archive.finalize()
             })
 

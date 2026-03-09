@@ -331,10 +331,24 @@ const webdavSync = new WebDAVSync({
 // 如果配置了 WebDAV，在启动时尝试从远程恢复
 if (webdavSync.isConfigured()) {
   console.log('WebDAV configured, attempting to restore from remote...')
-  void webdavSync.restoreFromRemote().then((success: boolean) => {
+  void webdavSync.restoreFromRemote().then(async (success: boolean) => {
     if (success) {
       console.log('Data restored from WebDAV successfully')
-      // 重新加载 users.json
+
+      // 1. 重新从磁盘加载最新的 config.js 到内存 (解决实时生效问题)
+      const configPath = path.join(process.cwd(), 'config.js')
+      if (fs.existsSync(configPath)) {
+        console.log('Reloading config.js after WebDAV restore...')
+        // 清除 node require 缓存以强制重载
+        try {
+          delete require.cache[require.resolve(configPath)]
+          margeConfig(configPath)
+        } catch (e) {
+          console.error('Failed to hot-reload config.js:', e)
+        }
+      }
+
+      // 2. 重新加载 users.json
       const usersJsonPath = path.join(global.lx.dataPath, 'users.json')
       if (fs.existsSync(usersJsonPath)) {
         try {
@@ -351,15 +365,17 @@ if (webdavSync.isConfigured()) {
               checkAndCreateDir(dataPath)
               user.dataPath = dataPath
             }
-
-            console.log(`Users after WebDAV restore:
-${global.lx.config.users.map(user => `  ${user.name}: ${user.password}`).join('\n')}
-`)
           }
         } catch (err) {
           console.error('Failed to reload users.json after WebDAV restore', err)
         }
       }
+
+      // 3. 重新加载所有自定义源 (解决前端显示加载中/旧源问题)
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { initUserApis } = require('@/server/userApi')
+      console.log('Re-initializing user APIs after WebDAV restore...')
+      await initUserApis()
     }
     // 启动自动同步
     webdavSync.startAutoSync()

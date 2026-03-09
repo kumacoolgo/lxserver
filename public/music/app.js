@@ -1494,8 +1494,23 @@ async function probeUrl(url) {
 
 const prefetchManager = {
     cache: new Map(), // Map<songId, {url, quality, sourceType, timestamp}>
+    bufferer: new Audio(), // 隐藏的缓冲器，用于预加载数据流
+
+    init() {
+        this.bufferer.muted = true;
+        this.bufferer.preload = 'auto'; // 强制浏览器尽可能多地预缓冲
+    },
+
     set(songId, data) {
         this.cache.set(songId, { ...data, timestamp: Date.now() });
+
+        // 核心升级：触发数据流预加载
+        if (data.url) {
+            console.log(`[Prefetch] Pre-loading data stream for ID: ${songId}`);
+            this.bufferer.src = data.url;
+            this.bufferer.load(); // 诱导浏览器开始填充缓冲区
+        }
+
         if (this.cache.size > 5) {
             const oldestKey = this.cache.keys().next().value;
             this.cache.delete(oldestKey);
@@ -1510,8 +1525,10 @@ const prefetchManager = {
     },
     clear() {
         this.cache.clear();
+        this.bufferer.src = '';
     }
 };
+prefetchManager.init(); // 立即初始化缓冲器
 
 // --- URL Fetching Logic (Unified Resolution) ---
 
@@ -1553,13 +1570,19 @@ async function fetchSongUrl(song, quality, isRetry = false, isSilent = false) {
     const allowServerCache = !isRetry && settings.enableServerCache;
     if (allowServerCache) {
         const serverCacheUrl = await checkServerCache(cleanedSong, quality);
-        if (serverCacheUrl) return { url: serverCacheUrl, sourceType: 'server_cache', quality };
+        if (serverCacheUrl) {
+            console.log(`[Cache] Server Hit: ${cleanedSong.name} (${quality})`);
+            return { url: serverCacheUrl, sourceType: 'server_cache', quality };
+        }
     }
 
     const allowLinkCache = (!isRetry || isRetry === 'local_retry') && settings.enableSongUrlCache !== false;
     if (allowLinkCache) {
         const cachedUrl = localStorage.getItem(cacheKey);
-        if (cachedUrl) return { url: cachedUrl, sourceType: 'cache', quality };
+        if (cachedUrl) {
+            console.log(`[Cache] Link Hit: ${cleanedSong.name} (${quality})`);
+            return { url: cachedUrl, sourceType: 'cache', quality };
+        }
     }
 
     const reqId = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -1603,17 +1626,31 @@ async function fetchSongUrl(song, quality, isRetry = false, isSilent = false) {
 
         const result = await res.json();
         if (result.url) {
+            // [Feature] 统一应用代理逻辑，确保预读和播放使用一致的 URL
+            let finalUrl = result.url;
+            let shouldProxy = settings.enableProxyPlayback;
+            if (!shouldProxy && settings.enableAutoProxy) {
+                if (window.location.protocol === 'https:' && finalUrl.startsWith('http://')) {
+                    shouldProxy = true;
+                }
+            }
+            if (shouldProxy && !finalUrl.startsWith('/api/music/download') && !finalUrl.includes('/api/music/cache/file/')) {
+                const filename = `${song.singer} - ${song.name}.mp3`;
+                finalUrl = `/api/music/download?url=${encodeURIComponent(finalUrl)}&filename=${encodeURIComponent(filename)}&inline=1`;
+            }
+
             if (settings.enableSongUrlCache !== false) {
                 try {
-                    localStorage.setItem(cacheKey, result.url);
+                    localStorage.setItem(cacheKey, finalUrl);
                     updateStorageStatsUI();
                 } catch (e) { }
             }
-            if (settings.enableServerCache && !result.url.includes('/api/music/cache/file/')) {
-                triggerServerCache(song, result.url, quality);
+            if (settings.enableServerCache && !finalUrl.includes('/api/music/cache/file/')) {
+                triggerServerCache(song, finalUrl, quality);
             }
+            console.log(`[Resolve] Online Success: ${song.name} via ${result.sourceName || 'Unknown'}`);
             return {
-                url: result.url,
+                url: finalUrl,
                 sourceType: 'normal',
                 quality: result.type || quality,
                 sourceName: result.sourceName,
@@ -1692,7 +1729,8 @@ async function prefetchNextSong(startFromIndex = null, depth = 0) {
         }
 
         prefetchManager.set(nextSong.id, result);
-        console.log(`[Prefetch] Readied: ${nextSong.name}`);
+        const sourceDesc = getSourceTypeText(result.sourceType);
+        console.log(`[Prefetch] Readied: ${nextSong.name} (${result.quality} / ${sourceDesc})`);
 
     } catch (e) {
         console.warn(`[Prefetch] Skip unplayable [${nextSong.name}]:`, e.message);
@@ -1818,7 +1856,11 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
     }
 
     // Show persistent loading toast
-    if (!isRetry) showInfo(`正在加载: ${song.name}...`);
+    if (!isRetry) {
+        showInfo(`正在加载: ${song.name}...`);
+    } else if (isRetry === true) {
+        showInfo(`链接过期或失效，正在为您重新在线解析: ${song.name}...`);
+    }
 
     // 处理切换提示的显示与隐藏
     const hint = document.getElementById('toggle-hint');
@@ -1839,35 +1881,38 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
     }
 
     // 显示加载状态
-    setPlayerStatus('正在准备播放...');
+    setPlayerStatus('正在准备播放', null, true);
 
-    // [Crossfade] 如果开启了淡入淡出，则先执行淡出。注意：当自然播放结束(audio.ended)时不能执行异步淡出，否则会导致跨 microtask 而丢失自动播放的权限。
+    let targetQuality = forceQuality;
+    let isPrefetchFound = false;
+    let urlResult = null;
+
+    // 提前检查预读缓存，以便淡出逻辑使用
+    if (!targetQuality && !isRetry) {
+        urlResult = prefetchManager.get(song.id);
+        if (urlResult) {
+            urlResult.isPrefetch = true;
+            isPrefetchFound = true;
+        }
+    }
+
+    // [Crossfade] 如果开启了淡入淡出，则先执行淡出
     if (settings.enableCrossfade && !noPlay && audio && !audio.paused && !audio.ended && audio.src) {
         await fadeVolume(0, 300);
     }
 
     if (!noPlay) {
-        try { audio.pause(); } catch (e) { } // 确保上一首立即停止
+        try { audio.pause(); } catch (e) { }
     }
-    updatePlayButton(false); // 暂停按钮状态
+    updatePlayButton(false);
 
-    let targetQuality = forceQuality;
     try {
-        // 1. 智能音质选择与 URL 解析 (支持预读、缓存、解析和自动降级)
-        let urlResult = null;
-
-        if (!targetQuality && !isRetry) {
-            urlResult = prefetchManager.get(song.id);
-            if (urlResult) {
-                urlResult.isPrefetch = true;
-            }
-        }
-
+        // 1. 智能音质选择与 URL 解析
         if (!urlResult) {
             if (!targetQuality) {
                 targetQuality = window.QualityManager.getBestQuality(song, settings.preferredQuality || '320k');
             }
-            setPlayerStatus('正在获取播放链接...');
+            setPlayerStatus('正在获取播放链接', null, true);
             urlResult = await resolveSongUrl(song, targetQuality);
         }
 
@@ -1878,10 +1923,21 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
 
         // Display attempts / success message
         const sourceText = getSourceTypeText(urlResult.sourceType);
+        const sourceName = urlResult.sourceName || '';
+
         if (urlResult.isPrefetch) {
-            // 静默处理，不弹窗
-        } else if (urlResult.sourceType !== 'normal') {
-            showSuccess(`[${song.name}] 命中${sourceText}`);
+            let detail = '解析成功';
+            if (urlResult.sourceType === 'cache') detail = '命中缓存链接';
+            else if (urlResult.sourceType === 'server_cache') detail = '命中本地文件';
+            else if (sourceName) detail = `${sourceName} 解析成功`;
+            showSuccess(`[预读] ${song.name} ${detail}`);
+        } else {
+            if (urlResult.sourceType !== 'normal') {
+                showSuccess(`[${song.name}] 命中${sourceText}`);
+            } else {
+                // 在线解析：最后确认一次解析成功的源（支持自定义源显示）
+                showSuccess(`[${song.name}] ${sourceName || '在线源'} 解析成功`);
+            }
         }
 
         // [Real-time Progress handles attempts now via WebSocket]
@@ -1894,18 +1950,7 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
         currentQuality = urlResult.quality;
         currentSourceType = urlResult.sourceType;
 
-        // Apply Proxy Setting logic
-        let shouldProxyPlayback = settings.enableProxyPlayback;
-        if (!shouldProxyPlayback && settings.enableAutoProxy) {
-            if (window.location.protocol === 'https:' && finalUrl.startsWith('http://')) {
-                shouldProxyPlayback = true;
-            }
-        }
-
-        if (shouldProxyPlayback && !finalUrl.startsWith('/api/music/download') && !finalUrl.includes('/api/music/cache/file/')) {
-            const filename = `${song.singer} - ${song.name}.mp3`;
-            finalUrl = `/api/music/download?url=${encodeURIComponent(finalUrl)}&filename=${encodeURIComponent(filename)}&inline=1`;
-        }
+        // [Removed] 这里的代理逻辑已统一移动至 fetchSongUrl 阶段处理，确保预加载地址一致性
 
         // Pre-handle error for invalid cache links
         if (currentSourceType !== 'normal') {
@@ -1994,12 +2039,24 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
 }
 
 // 设置播放器状态文本
-function setPlayerStatus(status, isPlaying = null) {
+/**
+ * 设置播放器状态文本
+ * @param {string} status 状态文本
+ * @param {boolean|null} isPlaying 播放状态
+ * @param {boolean} isLoading 是否显示加载/缓冲动画
+ */
+function setPlayerStatus(status, isPlaying = null, isLoading = false) {
     const statusEl = document.getElementById('player-status');
     if (!statusEl) return;
 
-    // 如果传入的是完整的状态文本（如"正在获取播放链接..."），直接显示
-    if (typeof status === 'string' && (status.includes('...') || status.includes('请点击') || status.includes('即将跳过'))) {
+    // 如果指定了加载状态，自动应用跳动动画
+    if (isLoading && typeof status === 'string') {
+        statusEl.innerHTML = `<span class="animate-loading-dots">${status}<span>.</span><span>.</span><span>.</span></span>`;
+        return;
+    }
+
+    // 处理其他固定文本状态
+    if (typeof status === 'string' && (status.includes('请点击') || status.includes('即将跳过'))) {
         statusEl.innerText = status;
         return;
     }
@@ -2118,26 +2175,7 @@ function updatePlaylist(list, startIndex = 0, scope = 'local_list', shouldAddToD
 window.updatePlaylist = updatePlaylist;
 
 // 显示错误提示（现代化 Toast）
-function showError(message) {
-    // 移除旧的提示
-    const oldToast = document.querySelector('.error-toast');
-    if (oldToast) oldToast.remove();
-
-    const toast = document.createElement('div');
-    toast.className = 'error-toast fixed bottom-24 right-4 bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 max-w-sm animate-slide-in';
-    toast.innerHTML = `
-        <div class="flex items-center gap-2">
-            <i class="fas fa-exclamation-circle"></i>
-            <span>${message}</span>
-        </div>
-    `;
-    document.body.appendChild(toast);
-
-    setTimeout(() => {
-        toast.classList.add('opacity-0', 'transition-opacity');
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
-}
+// 移除旧版 showError，由后文统一的 showToast 驱动
 
 
 function updatePlayerInfo(song) {
@@ -2516,6 +2554,7 @@ audio.addEventListener('play', () => {
 
 audio.addEventListener('playing', () => {
     // [Fix] 'playing' 事件表示音频真正开始震动输出，此时同步最准确
+    setPlayerStatus('', true); // 恢复正常播放状态
     if (lyricPlayer) {
         lyricPlayer.play(audio.currentTime * 1000);
         isUserScrolling = false;
@@ -2702,9 +2741,14 @@ audio.addEventListener('seeked', () => {
     }
 });
 audio.addEventListener('waiting', () => {
+    setPlayerStatus('缓冲歌曲中', null, true);
     if (lyricPlayer) {
         lyricPlayer.pause();
     }
+});
+
+audio.addEventListener('stalled', () => {
+    setPlayerStatus('缓冲歌曲中', null, true);
 });
 
 // Initialize Media Session Actions
@@ -2860,27 +2904,12 @@ function setPlayMode(mode) {
         console.error('[PlayMode] 保存播放模式失败:', e);
     }
 
-    // 显示提示
-    const modeNames = {
-        'list': '列表循环',
-        'single': '单曲循环',
-        'random': '随机播放',
-        'order': '顺序播放'
-    };
-
     // Close menu (Mobile/Click mode)
     const menu = document.getElementById('play-mode-menu');
     if (menu) menu.classList.remove('force-visible');
 
-    const toast = document.createElement('div');
-    toast.className = 'fixed bottom-28 right-4 bg-emerald-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
-    toast.innerHTML = `<i class="fas fa-check-circle mr-2"></i>${modeNames[mode]}`;
-    document.body.appendChild(toast);
-
-    setTimeout(() => {
-        toast.classList.add('opacity-0', 'transition-opacity');
-        setTimeout(() => toast.remove(), 300);
-    }, 1500);
+    // 使用统一的 Toast 系统显示提示
+    showSuccess(`播放模式：${getPlayModeName(mode)}`);
 }
 
 // 切换播放模式菜单（适配移动端点击）
@@ -2917,6 +2946,9 @@ function setPlaybackRate(rate) {
     // 关闭菜单
     const menu = document.getElementById('playback-rate-menu');
     if (menu) menu.classList.remove('force-visible');
+
+    // 增加提示
+    showInfo(`播放速度：${rate}x`);
 }
 
 // 更新播放倍速 UI
@@ -7744,3 +7776,131 @@ window.togglePlay = function () {
 };
 
 document.addEventListener('click', initAudioEngine, { once: true });
+
+// --- Search Suggestions Logic ---
+let searchTipsDebounceTimer = null;
+let currentSelectedTipIndex = -1;
+
+function initSearchTips() {
+    const searchInput = document.getElementById('search-input');
+    const suggestionsContainer = document.getElementById('search-suggestions');
+
+    if (!searchInput || !suggestionsContainer) return;
+
+    searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.trim();
+        clearTimeout(searchTipsDebounceTimer);
+
+        if (!query) {
+            hideSearchSuggestions();
+            return;
+        }
+
+        searchTipsDebounceTimer = setTimeout(() => {
+            fetchSearchTips(query);
+        }, 300);
+    });
+
+    searchInput.addEventListener('focus', () => {
+        const query = searchInput.value.trim();
+        if (query) {
+            suggestionsContainer.classList.remove('hidden');
+        }
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+        const list = document.getElementById('search-suggestions-list');
+        const items = list ? list.querySelectorAll('.search-tip-item') : [];
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (items.length === 0) return;
+            currentSelectedTipIndex = (currentSelectedTipIndex + 1) % items.length;
+            updateTipSelection(items);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (items.length === 0) return;
+            currentSelectedTipIndex = (currentSelectedTipIndex - 1 + items.length) % items.length;
+            updateTipSelection(items);
+        } else if (e.key === 'Enter') {
+            if (currentSelectedTipIndex >= 0 && items[currentSelectedTipIndex]) {
+                e.preventDefault();
+                const text = items[currentSelectedTipIndex].textContent.trim();
+                searchInput.value = text;
+                hideSearchSuggestions();
+                doSearch();
+            }
+        } else if (e.key === 'Escape') {
+            hideSearchSuggestions();
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !suggestionsContainer.contains(e.target)) {
+            hideSearchSuggestions();
+        }
+    });
+}
+
+function updateTipSelection(items) {
+    items.forEach((item, index) => {
+        if (index === currentSelectedTipIndex) {
+            item.classList.add('t-bg-muted');
+            item.scrollIntoView({ block: 'nearest' });
+        } else {
+            item.classList.remove('t-bg-muted');
+        }
+    });
+}
+
+async function fetchSearchTips(query) {
+    const source = (document.getElementById('search-source')) ? document.getElementById('search-source').value : 'kw';
+    try {
+        const resp = await fetch(`/api/music/tipSearch?name=${encodeURIComponent(query)}&source=${source}`);
+        const tips = await resp.json();
+        renderSearchTips(tips);
+    } catch (err) {
+        console.error('[TipSearch] Fetch error:', err);
+    }
+}
+
+function renderSearchTips(tips) {
+    const container = document.getElementById('search-suggestions');
+    const list = document.getElementById('search-suggestions-list');
+    if (!container || !list) return;
+
+    list.innerHTML = '';
+    currentSelectedTipIndex = -1;
+
+    if (!tips || tips.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    tips.forEach((tip, index) => {
+        const div = document.createElement('div');
+        div.className = 'search-tip-item px-4 py-2.5 hover:t-bg-muted cursor-pointer transition-colors text-sm flex items-center gap-3';
+        div.innerHTML = `<i class="fas fa-search t-text-muted text-xs"></i><span class="truncate">${tip}</span>`;
+        div.onclick = () => {
+            document.getElementById('search-input').value = tip;
+            hideSearchSuggestions();
+            doSearch();
+        };
+        list.appendChild(div);
+    });
+
+    container.classList.remove('hidden');
+}
+
+function hideSearchSuggestions() {
+    const container = document.getElementById('search-suggestions');
+    if (container) container.classList.add('hidden');
+    currentSelectedTipIndex = -1;
+}
+
+// Ensure initSearchTips runs on load
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSearchTips);
+} else {
+    initSearchTips();
+}

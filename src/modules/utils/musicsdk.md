@@ -444,6 +444,22 @@ fields: 'album_info,author_name,audio_info,ori_audio_name,base,songname,classifi
 img: (item.img || item.album_info?.sizable_cover || item.audio_info?.trans_param?.union_cover || item.album_info?.pic || item.album_info?.img || item.album_info?.s_img || '').replace('{size}', '400') || null
 ```
 
+## 8. 各源搜索联想 (tipSearch) 启用及修复
+**文件路径**: `src/modules/utils/musicSdk/*/index.js`, `src/modules/utils/musicSdk/mg/tipSearch.js`
+**修改目的**: 启用各音乐源（kg, mg, tx, wy）的搜索联想功能，并修复咪咕源接口失效的问题。
+**核心修改**:
+1. **模块启用**: 在各源的 `index.js` 中取消对 `tipSearch` 的导入和导出注释。
+2. **咪咕接口修复**: 
+    - 原接口 `music.migu.cn/v3/api/search/suggest` 返回 301 重定向导致联想失败。
+    - 替换为 PC 端接口 `app.u.nf.migu.cn/pc/resource/content/tone_search_suggest/v1.0`。
+    - 适配新的数据结构，将解析字段从 `info.name` 修正为 `info.songName`。
 
+**修改方案 (mg/tipSearch.js)**:
+```javascript
+// 修改前
+this.requestObj = createHttpFetch(`https://music.migu.cn/v3/api/search/suggest?keyword=${encodeURIComponent(str)}`, { ... })
 
-
+// 修改后
+this.requestObj = createHttpFetch(`https://app.u.nf.migu.cn/pc/resource/content/tone_search_suggest/v1.0?text=${encodeURIComponent(str)}`)
+// 处理逻辑同步更新为解析 body.data.songList
+```

@@ -599,9 +599,37 @@
             will-change: transform;
         }
 
-        #btn-expand-panel {
-            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease-out !important;
-            will-change: transform, opacity;
+        /* Buffering status dots animation */
+        @keyframes loading-bounce {
+
+            0%,
+            80%,
+            100% {
+                transform: translateY(0);
+                opacity: 0.5;
+            }
+
+            40% {
+                transform: translateY(-4px);
+                opacity: 1;
+            }
+        }
+
+        .animate-loading-dots span {
+            display: inline-block;
+            animation: loading-bounce 1.4s infinite ease-in-out;
+        }
+
+        .animate-loading-dots span:nth-child(1) {
+            animation-delay: 0s;
+        }
+
+        .animate-loading-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .animate-loading-dots span:nth-child(3) {
+            animation-delay: 0.4s;
         }
     </style>
 </head>
@@ -697,9 +725,11 @@
                 <div id="sidebar-song-info" class="p-4 border-t t-border-main hidden">
                     <img id="sidebar-cover" src="/music/assets/logo.svg" onerror="this.src='/music/assets/logo.svg'"
                         alt="Cover" class="w-full rounded-lg shadow-md mb-3 dynamic-logo">
-                    <div class="text-center">
-                        <div id="sidebar-song-name" class="font-bold text-sm truncate">Song Name</div>
-                        <div id="sidebar-singer" class="text-xs text-gray-500 truncate">Artist</div>
+                    <div class="text-center flex flex-col items-center">
+                        <div id="sidebar-song-name" class="font-bold text-sm truncate max-w-full block">Song Name
+                        </div>
+                        <div id="sidebar-singer" class="text-xs text-gray-500 truncate max-w-full block">Artist
+                        </div>
                     </div>
                 </div>
             </div>
@@ -766,9 +796,18 @@
                         <!-- Search Input -->
                         <div class="flex-1 relative">
                             <i class="fas fa-search absolute left-4 top-3.5 t-text-muted"></i>
-                            <input type="text" id="search-input"
+                            <input type="text" id="search-input" name="lx_music_search_query"
                                 class="w-full pl-10 pr-4 py-3 t-bg-panel border t-border-main rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-sm text-sm md:text-base"
-                                placeholder="搜索歌曲、歌手..." onkeypress="handleSearchKeyPress(event)">
+                                placeholder="搜索歌曲、歌手..." onkeypress="handleSearchKeyPress(event)"
+                                autocomplete="one-time-code" readonly onfocus="this.removeAttribute('readonly');"
+                                spellcheck="false">
+                            <!-- Search Suggestions Dropdown -->
+                            <div id="search-suggestions"
+                                class="absolute top-full left-0 w-full mt-2 t-bg-panel border t-border-main rounded-xl shadow-xl z-50 hidden overflow-hidden animate-fade-in">
+                                <div id="search-suggestions-list" class="py-2">
+                                    <!-- Suggestions appear here -->
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Source Selector & Manage Button -->
@@ -1363,7 +1402,7 @@
                                                 缓存歌词 (Cache Lyrics)
                                                 <span class="setting-tooltip-trigger ml-1">
                                                     <i class="fas fa-question-circle"></i>
-                                                    <span class="setting-tooltip-content">本地缓存歌词、翻译及罗马音，减少重复网络请求。</span>
+                                                    <span class="setting-tooltip-content">开启后，应用会自动缓存已加载的歌词。</span>
                                                 </span>
                                             </div>
                                         </div>
@@ -1443,9 +1482,6 @@
                                         <i class="fas fa-info-circle mt-0.5 text-yellow-600"></i>
                                         <span>优先级: 本地文件 > 链接缓存 > 在线获取 (自动缓存)</span>
                                     </div>
-
-
-
 
                                     <div class="flex items-center justify-between">
                                         <div class="flex flex-col">
@@ -1639,7 +1675,8 @@
                                                 <i class="fas fa-question-circle"></i>
                                                 <span class="setting-tooltip-content">
                                                     设置搜索页面显示的热门搜索词数量 (0-50，设置为0关闭显示)<br>
-                                                    <span class="text-emerald-500 font-medium">* 实际数量取决于源，可能少于设置值</span>
+                                                    <span class="text-emerald-500 font-medium">*
+                                                        实际数量取决于源，可能少于设置值</span>
                                                 </span>
                                             </span>
                                         </h3>
@@ -1658,10 +1695,12 @@
                                     <div
                                         class="t-bg-panel rounded-xl border t-border-main p-4 hover:shadow-sm transition-shadow">
                                         <h3 class="font-bold t-text-main text-sm mb-3 flex items-center">
-                                            <i class="fas fa-font mr-2 text-emerald-500"></i> 歌词字体大小 (Lyric Font Size)
+                                            <i class="fas fa-font mr-2 text-emerald-500"></i> 歌词字体大小 (Lyric Font
+                                            Size)
                                             <span class="setting-tooltip-trigger">
                                                 <i class="fas fa-question-circle"></i>
-                                                <span class="setting-tooltip-content">设置播放详情页歌词显示的大小 (单位: rem)</span>
+                                                <span class="setting-tooltip-content">设置播放详情页歌词显示的大小 (单位:
+                                                    rem)</span>
                                             </span>
                                         </h3>
                                         <div class="flex flex-col md:flex-row md:items-center justify-between">
@@ -1681,10 +1720,12 @@
                                     <div
                                         class="t-bg-panel rounded-xl border t-border-main p-4 hover:shadow-sm transition-shadow">
                                         <h3 class="font-bold t-text-main text-sm mb-3 flex items-center">
-                                            <i class="fas fa-font mr-2 text-emerald-500"></i> 歌词字体 (Lyric Font Family)
+                                            <i class="fas fa-font mr-2 text-emerald-500"></i> 歌词字体 (Lyric Font
+                                            Family)
                                             <span class="setting-tooltip-trigger">
                                                 <i class="fas fa-question-circle"></i>
-                                                <span class="setting-tooltip-content">设置歌词显示的字体 (支持本地安装的字体，如 'SimHei',
+                                                <span class="setting-tooltip-content">设置歌词显示的字体 (支持本地安装的字体，如
+                                                    'SimHei',
                                                     'Microsoft YaHei')</span>
                                             </span>
                                         </h3>
@@ -2257,37 +2298,45 @@
                                     </div>
                                     <div
                                         class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-[10px] t-text-muted border-t t-border-main pt-3">
-                                        <div class="flex justify-between items-center"><span>播放/暂停 (Play/Pause)</span>
+                                        <div class="flex justify-between items-center"><span>播放/暂停
+                                                (Play/Pause)</span>
                                             <span
                                                 class="t-bg-track px-2 py-0.5 rounded-md font-mono border t-border-main">Space</span>
                                         </div>
-                                        <div class="flex justify-between items-center"><span>上一曲/下一曲 (Prev/Next)</span>
+                                        <div class="flex justify-between items-center"><span>上一曲/下一曲
+                                                (Prev/Next)</span>
                                             <span
                                                 class="t-bg-track px-2 py-0.5 rounded-md font-mono border t-border-main">[
                                                 / ]</span>
                                         </div>
-                                        <div class="flex justify-between items-center"><span>音量加/减 (Volume)</span> <span
+                                        <div class="flex justify-between items-center"><span>音量加/减 (Volume)</span>
+                                            <span
                                                 class="t-bg-track px-2 py-0.5 rounded-md font-mono border t-border-main">↑
-                                                / ↓</span></div>
+                                                / ↓</span>
+                                        </div>
                                         <div class="flex justify-between items-center"><span>快进/后退 (Seek)</span>
                                             <div class="flex flex-col items-end"><span
                                                     class="t-bg-track px-2 py-0.5 rounded-md font-mono border t-border-main">→
                                                     / ←</span><span class="text-[8px] text-emerald-500/60 mt-0.5">Hold
                                                     for smooth seek</span></div>
                                         </div>
-                                        <div class="flex justify-between items-center"><span>切换页签 (Switch Tab)</span>
+                                        <div class="flex justify-between items-center"><span>切换页签 (Switch
+                                                Tab)</span>
                                             <span
                                                 class="t-bg-track px-2 py-0.5 rounded-md font-mono border t-border-main">Alt
                                                 + 1-4</span>
                                         </div>
-                                        <div class="flex justify-between items-center"><span>歌词页开关 (Lyrics)</span> <span
+                                        <div class="flex justify-between items-center"><span>歌词页开关 (Lyrics)</span>
+                                            <span
                                                 class="t-bg-track px-2 py-0.5 rounded-md font-mono border t-border-main">L</span>
                                         </div>
-                                        <div class="flex justify-between items-center"><span>显示底部波形 (Visualizer)</span>
+                                        <div class="flex justify-between items-center"><span>显示底部波形
+                                                (Visualizer)</span>
                                             <span
                                                 class="t-bg-track px-2 py-0.5 rounded-md font-mono border t-border-main">F</span>
                                         </div>
-                                        <div class="flex justify-between items-center"><span>显示详情波形 (Detail Vis)</span>
+                                        <div class="flex justify-between items-center"><span>显示详情波形 (Detail
+                                                Vis)</span>
                                             <span
                                                 class="t-bg-track px-2 py-0.5 rounded-md font-mono border t-border-main">G</span>
                                         </div>
@@ -2466,12 +2515,13 @@
             <div class="overflow-hidden flex-1 flex flex-col justify-center">
                 <div class="flex items-center gap-2 min-w-0">
                     <div id="player-title"
-                        class="font-bold t-text-main truncate text-sm md:text-base dynamic-marquee min-w-0"
+                        class="font-bold t-text-main truncate text-sm md:text-base dynamic-marquee min-w-0 w-fit"
                         data-text="暂无播放">暂无播放</div>
                     <div id="player-source" class="flex-shrink-0"></div>
                 </div>
                 <div class="flex flex-col min-w-0">
-                    <div id="player-artist" class="text-xs text-gray-500 truncate dynamic-marquee min-w-0"
+                    <div id="player-artist"
+                        class="text-xs text-gray-500 truncate dynamic-marquee min-w-0 w-fit self-start"
                         data-text="选择一首歌曲播放">选择一首歌曲播放</div>
                     <div id="player-status" class="text-xs text-emerald-600 font-medium whitespace-nowrap"></div>
                 </div>

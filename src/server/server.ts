@@ -1708,6 +1708,27 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         return
       }
 
+      // [新增] 搜索提示 (TipSearch) API
+      if (pathname === '/api/music/tipSearch' && req.method === 'GET') {
+        const name = urlObj.searchParams.get('name') || ''
+        const source = urlObj.searchParams.get('source') || 'kw'
+        if (!name) {
+          res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('[]'); return
+        }
+        try {
+          if (!musicSdk[source] || !musicSdk[source].tipSearch) {
+            res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('[]'); return
+          }
+          const tips = await musicSdk[source].tipSearch.search(name)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(tips || []))
+        } catch (err: any) {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end('[]')
+        }
+        return
+      }
+
       // [新增] 音乐解析进度 SSE 端点 (无需登录, 用 requestId 区分)
       if (pathname === '/api/music/progress' && req.method === 'GET') {
         const reqId = urlObj.searchParams.get('reqId')
@@ -2326,6 +2347,10 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
                 'frontend.password': global.lx.config['frontend.password'],
                 'player.enableAuth': global.lx.config['player.enableAuth'],
                 'player.password': global.lx.config['player.password'],
+                'webdav.url': global.lx.config['webdav.url'],
+                'webdav.username': global.lx.config['webdav.username'],
+                'webdav.password': global.lx.config['webdav.password'],
+                'sync.interval': global.lx.config['sync.interval'],
                 users: global.lx.config.users.map(u => ({
                   name: u.name,
                   password: u.password,
@@ -2334,6 +2359,11 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
                 })),
               }, null, 2)}`
               fs.writeFileSync(configPath, configContent)
+
+              // 触发一次 WebDAV 同步检查（如果已配置）
+              if (global.lx.webdavSync && global.lx.webdavSync.isConfigured()) {
+                void global.lx.webdavSync.syncChangedFiles()
+              }
 
               res.writeHead(200)
               res.end(JSON.stringify({ success: true, warning }))

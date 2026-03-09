@@ -36,11 +36,12 @@ jobs:
           mkdir -p release/lx-music-sync-server
           
           # Copy core files
-          cp -r server public index.js package.json release/lx-music-sync-server/
+          cp -r server public scripts index.js package.json release/lx-music-sync-server/
           
           # Copy config files if they exist
           [ -f "ecosystem.config.js" ] && cp ecosystem.config.js release/lx-music-sync-server/
           [ -f "config.js" ] && cp config.js release/lx-music-sync-server/
+          [ -f "changelog.md" ] && cp changelog.md release/lx-music-sync-server/
           
           # Copy documentation/license if they exist
           [ -f "LICENSE" ] && cp LICENSE release/lx-music-sync-server/
