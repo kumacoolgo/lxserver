@@ -285,6 +285,11 @@ window.SongListManager = (function () {
                 </div>
             </div>
         `).join('');
+
+        // Trigger Lazy Load
+        if (typeof window.lazyLoadImages === 'function') {
+            window.lazyLoadImages();
+        }
     }
 
     function renderSortTabs() {
@@ -315,12 +320,23 @@ window.SongListManager = (function () {
         // Sync with global viewingPlaylist
         window.viewingPlaylist = detailState.list;
 
-        document.getElementById('sl-detail-name').innerText = info.name;
-        document.getElementById('sl-detail-name').title = info.name;
-        document.getElementById('sl-detail-title').innerText = info.name;
+        const nameEl = document.getElementById('sl-detail-name');
+        if (nameEl) {
+            nameEl.innerHTML = window.createMarqueeHtml ? window.createMarqueeHtml(info.name) : info.name;
+        }
+
+        const titleEl = document.getElementById('sl-detail-title');
+        if (titleEl) {
+            titleEl.innerHTML = window.createMarqueeHtml ? window.createMarqueeHtml(info.name) : info.name;
+        }
+
         if (window.setImg) window.setImg('sl-detail-cover', info.img || info.cover || '/music/assets/logo.svg');
         else document.getElementById('sl-detail-cover').src = info.img || info.cover || '/music/assets/logo.svg';
-        document.getElementById('sl-detail-author').innerText = info.author || '';
+
+        const authorEl = document.getElementById('sl-detail-author');
+        if (authorEl) {
+            authorEl.innerHTML = window.createMarqueeHtml ? window.createMarqueeHtml(info.author || '', 'text-emerald-500 font-medium') : (info.author || '');
+        }
 
         // Render stats (time, song count, play count)
         const statsHtml = [];
@@ -385,17 +401,19 @@ window.SongListManager = (function () {
             if (isSelected) rowClass += 'row-selected ring-1 ring-emerald-500/30 ';
 
             return `
-            <div id="sl-row-${index}" class="${rowClass}" 
+            <div id="sl-row-${index}" class="${rowClass}" data-song-id="${String(song.id)}" 
                  onclick="window.SongListManager.handleRowClick(${index})">
                 <div class="col-span-1 text-center text-gray-400 font-mono text-xs flex items-center justify-center">
                     ${window.batchMode ? `
                         <input type="checkbox" 
                                class="batch-checkbox w-4 h-4 text-emerald-600 rounded" 
+                               data-song-id="${String(song.id)}"
                                ${isSelected ? 'checked' : ''}
                                onclick="event.stopPropagation(); handleBatchSelect('${String(song.id)}', this.checked);">
                     ` : index + 1}
                 </div>
-                <div class="col-span-8 md:col-span-5 flex items-center gap-3 min-w-0">
+                <!-- Title & Info -->
+                <div class="col-span-9 md:col-span-5 lg:col-span-4 flex items-center gap-3 min-w-0">
                     <div class="w-10 h-10 md:w-12 md:h-12 flex-shrink-0 relative rounded-lg overflow-hidden shadow-sm border t-border-main group-hover:shadow-md transition-all group-hover:scale-105 duration-300">
                         <img data-src="${window.getImgUrl ? window.getImgUrl(song) : (song.img || song.albumImg || '/music/assets/logo.svg')}" src="/music/assets/logo.svg"
                              class="lazy-image w-full h-full object-cover dynamic-logo is-placeholder" 
@@ -405,22 +423,42 @@ window.SongListManager = (function () {
                         </div>
                     </div>
                     <div class="min-w-0 flex-1 flex flex-col justify-center overflow-hidden">
-                        <span class="font-bold text-sm truncate t-text-main group-hover:text-emerald-500 transition-colors">${song.name}</span>
+                        <div class="font-bold text-sm t-text-main group-hover:text-emerald-500 transition-colors">
+                            ${window.createMarqueeHtml ? window.createMarqueeHtml(song.name) : `<span class="truncate">${song.name}</span>`}
+                        </div>
                         <div class="flex items-center gap-1 mt-0.5 overflow-hidden">
                              ${window.getSourceTag ? window.getSourceTag(song.source || detailState.source) : ''}
                              ${window.getQualityTags ? window.getQualityTags(song) : ''}
-                             <span class="text-[10px] t-text-muted md:hidden truncate">${song.singer}</span>
+                             <div class="md:hidden flex-1 min-w-0">
+                                ${window.createMarqueeHtml ? window.createMarqueeHtml(song.singer, 'text-[10px] t-text-muted') : `<span class="text-[10px] t-text-muted truncate">${song.singer}</span>`}
+                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="hidden md:flex md:col-span-3 items-center text-xs t-text-muted truncate">
-                    ${song.singer}
+                <!-- Artist -->
+                <div class="hidden md:flex md:col-span-3 items-center text-xs t-text-muted overflow-hidden">
+                    ${window.createMarqueeHtml ? window.createMarqueeHtml(song.singer) : `<span class="truncate">${song.singer}</span>`}
                 </div>
+                <!-- Album -->
                 <div class="hidden lg:flex lg:col-span-2 items-center text-xs t-text-muted truncate">
                     ${song.albumName || '--'}
                 </div>
-                <div class="col-span-3 md:col-span-3 lg:col-span-1 flex items-center justify-end text-xs font-mono t-text-muted">
+                <!-- Duration -->
+                <div class="hidden md:flex md:col-span-2 lg:col-span-1 items-center justify-end text-xs font-mono t-text-muted">
                     ${song.interval || '--:--'}
+                </div>
+                <!-- Actions -->
+                <div class="col-span-2 md:col-span-1 flex items-center justify-end gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button class="p-1.5 hover:bg-emerald-50 rounded-lg text-emerald-600 transition-colors" 
+                            title="播放" 
+                            onclick="event.stopPropagation(); window.SongListManager.playSong(${index})">
+                        <i class="fas fa-play w-3.5 h-3.5"></i>
+                    </button>
+                    <button class="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600 transition-colors" 
+                            title="下载" 
+                            onclick="event.stopPropagation(); downloadSong(${JSON.stringify(song).replace(/"/g, '&quot;')})">
+                        <i class="fas fa-download w-3.5 h-3.5"></i>
+                    </button>
                 </div>
             </div>
         `}).join('');
@@ -428,6 +466,9 @@ window.SongListManager = (function () {
         // Trigger Lazy Load
         if (typeof window.lazyLoadImages === 'function') {
             window.lazyLoadImages();
+        }
+        if (typeof window.applyMarqueeChecks === 'function') {
+            window.applyMarqueeChecks();
         }
     }
 
@@ -526,7 +567,6 @@ window.SongListManager = (function () {
                 const id = String(song.id);
                 const isChecked = !window.selectedItems.has(id);
                 window.handleBatchSelect(id, isChecked);
-                this.renderDetail();
             } else {
                 this.playSong(index);
             }

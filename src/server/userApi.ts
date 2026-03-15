@@ -568,6 +568,7 @@ export async function callUserApiGetMusicUrl(
 
                 const url = await api.callRequest('musicUrl', source, {
                     musicInfo: normalizedSongInfo,
+                    quality: quality,
                     type: quality
                 })
 
@@ -596,6 +597,7 @@ export async function callUserApiGetMusicUrl(
 
                 const url = await api.callRequest('musicUrl', source, {
                     musicInfo: normalizedSongInfo,
+                    quality: quality,
                     type: quality
                 })
 

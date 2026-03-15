@@ -4,7 +4,8 @@ import path from 'path'
 import http from 'http'
 import https from 'https'
 import { PassThrough } from 'stream'
-import * as NodeID3 from 'node-id3'
+const { MusicTagger, MetaPicture } = require('music-tag-native')
+import { buildLyrics, parseLyrics } from '../utils/lrcTool'
 
 // Define the two possible cache roots
 export const CACHE_ROOTS = {
@@ -15,6 +16,12 @@ export const CACHE_ROOTS = {
 let currentCacheLocation = CACHE_ROOTS.ROOT
 
 // Helper to get actual directory path
+// [Unified Enhancement] Cache Progress Tracker
+export const cacheProgress: Map<string, { progress: number; status: string; total?: number; received?: number }> = new Map()
+
+// [New] Active Cache Tasks Tracker: username -> [ { songKey, controller } ]
+export const activeTasks: Map<string, Array<{ songKey: string, controller: AbortController }>> = new Map()
+
 const getCacheDir = (username?: string) => {
     let baseDir = ''
     if (currentCacheLocation === CACHE_ROOTS.DATA) {
@@ -45,8 +52,8 @@ const getFileName = (songInfo: any, quality?: string) => {
     // For simplicity, let's assume mp3 or try to extract from URL if possible, otherwise .mp3
     // or we can store metadata in a separate json
 
-    // Sanitize function
-    const sanitize = (str: any) => String(str || '').replace(/[\\/:*?"<>|]/g, '_')
+    // Sanitize function, also avoiding our delimiter
+    const sanitize = (str: any) => String(str || '').replace(/[\\/:*?"<>|]/g, '_').replace(/_-_/g, '_- _')
 
     // If we have an extension/type hint, use it. But often we don't until we download.
     // Let's assume .mp3 for playability or detect from content-type.
@@ -55,7 +62,7 @@ const getFileName = (songInfo: any, quality?: string) => {
 
     const id = songInfo.songmid || songInfo.songId || songInfo.id || 'unknown_id'
     const q = quality || songInfo.quality || 'unknown'
-    let name = `${sanitize(songInfo.name || 'Unknown')}-${sanitize(songInfo.singer || 'Unknown')}-${sanitize(songInfo.source || 'unknown')}-${sanitize(id)}-${sanitize(q)}`
+    let name = `${sanitize(songInfo.name || 'Unknown')}_-_${sanitize(songInfo.singer || 'Unknown')}_-_${sanitize(songInfo.source || 'unknown')}_-_${sanitize(id)}_-_${sanitize(q)}`
 
     // Debug Log
     // console.log(`[FileCache] Generated filename base: ${name} (ID: ${id})`)
@@ -90,9 +97,9 @@ export const getCacheList = async (username?: string) => {
             try {
                 const stats = fs.statSync(filePath)
 
-                // Parse info from filename: {Name}-{Singer}-{Source}-{ID}-{Quality}.ext
+                // Parse info from filename: {Name}_-_{Singer}_-_{Source}_-_{ID}_-_{Quality}.ext
                 const nameWithoutExt = path.basename(file, ext)
-                const segments = nameWithoutExt.split('-')
+                const segments = nameWithoutExt.split('_-_')
 
                 let metadata: any = {
                     filename: file,
@@ -107,16 +114,22 @@ export const getCacheList = async (username?: string) => {
                     quality: segments[4] || ''
                 }
 
-                // If MP3, try to get tags via NodeID3
-                if (ext === '.mp3') {
-                    const tags = NodeID3.read(filePath)
-                    if (tags) {
-                        if (tags.title) metadata.name = tags.title
-                        if (tags.artist) metadata.singer = tags.artist
-                        if (tags.album) metadata.album = tags.album
-                        metadata.hasCover = !!tags.image
-                    }
+                // [Unified] Try to get tags via MusicTagger for metadata enrichment
+                try {
+                    const tagger = new MusicTagger()
+                    tagger.loadPath(filePath)
+                    if (tagger.title) metadata.name = tagger.title
+                    if (tagger.artist) metadata.singer = tagger.artist
+                    if (tagger.album) metadata.album = tagger.album
+                    metadata.hasCover = !!(tagger.pictures && tagger.pictures.length > 0)
+                    tagger.dispose()
+                } catch (e) {
+                    // Ignore metadata read errors for list view
                 }
+
+                // [New] Check if .lrc version exists for this specific quality file
+                const lrcPath = path.join(dir, nameWithoutExt + '.lrc')
+                metadata.hasLyric = fs.existsSync(lrcPath)
 
                 result.push(metadata)
             } catch (e) {
@@ -138,13 +151,21 @@ export const getCacheCover = (filename: string, username?: string) => {
 
     if (fs.existsSync(filePath)) {
         try {
-            const tags = NodeID3.read(filePath)
-            if (tags && tags.image) {
-                // console.log(`[Cache] Found cover for: ${filename}`)
-                return tags.image
+            const tagger = new MusicTagger()
+            tagger.loadPath(filePath)
+            const pics = tagger.pictures
+            if (pics && pics.length > 0) {
+                const pic = pics[0]
+                const result = {
+                    data: Buffer.from(pic.data),
+                    mime: pic.mimeType || 'image/jpeg'
+                }
+                tagger.dispose()
+                return result
             }
+            tagger.dispose()
         } catch (e) {
-            // console.error(`[Cache] Error reading ID3 for cover: ${filename}`, e)
+            // console.error(`[Cache] Error reading tags for cover: ${filename}`, e)
         }
     }
     return null
@@ -160,6 +181,17 @@ export const removeCacheFile = (filename: string, username?: string) => {
     if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath)
         console.log(`[FileCache] Manually deleted: ${filename}`)
+
+        // 删除关联的歌词文件
+        const ext = path.extname(filename)
+        if (ext !== '.lrc') {
+            const lrcPath = path.join(dir, filename.substring(0, filename.length - ext.length) + '.lrc')
+            if (fs.existsSync(lrcPath)) {
+                fs.unlinkSync(lrcPath)
+                console.log(`[FileCache] Manually deleted associated lyric: ${path.basename(lrcPath)}`)
+            }
+        }
+
         return true
     }
     return false
@@ -172,7 +204,7 @@ export const setCacheLocation = (location: string) => {
     }
 }
 
-export const checkCache = (songInfo: any, username?: string) => {
+export const checkCache = (songInfo: any, username?: string, includeTmp = false) => {
     let baseDir = ''
     if (currentCacheLocation === CACHE_ROOTS.DATA) {
         baseDir = path.join((global as any).lx.dataPath, 'cache')
@@ -192,6 +224,8 @@ export const checkCache = (songInfo: any, username?: string) => {
     if (username && username !== '_open') dirsToCheck.push(username)
     dirsToCheck.push('_open')
 
+    let matchedFiles: any[] = []
+
     for (const userDir of dirsToCheck) {
         const dirPath = path.join(baseDir, userDir)
         if (!fs.existsSync(dirPath)) continue
@@ -199,18 +233,31 @@ export const checkCache = (songInfo: any, username?: string) => {
         try {
             const files = fs.readdirSync(dirPath)
             for (const file of files) {
-                if (file.endsWith('.tmp') || file.startsWith('.')) continue
+                if (file.startsWith('.')) continue
+                if (!includeTmp && file.endsWith('.tmp')) continue
 
                 const lastDotIndex = file.lastIndexOf('.')
                 if (lastDotIndex === -1) continue
+                const ext = file.substring(lastDotIndex).toLowerCase()
+
+                // 通用音频后缀，如果是 includeTmp 模式则额外允许 .tmp
+                const AUDIO_EXTENSIONS = ['.mp3', '.flac', '.m4a', '.ogg', '.wav']
+                if (!AUDIO_EXTENSIONS.includes(ext) && !(includeTmp && ext === '.tmp')) {
+                    // console.log(`[FileCache] Skipping non-audio: ${file}`)
+                    continue
+                }
+
+                console.log(`[FileCache] Probing potential match: ${file} (ext: ${ext})`)
+
                 const fileNameWithoutExt = file.substring(0, lastDotIndex)
 
-                // 解析文件名: {Name}-{Singer}-{Source}-{ID}-{Quality}
-                const segments = fileNameWithoutExt.split('-')
+                // 解析文件名: {Name}_-_{Singer}_-_{Source}_-_{ID}_-_{Quality}
+                const segments = fileNameWithoutExt.split('_-_')
                 if (segments.length < 2) continue
 
-                // 提取文件中的 ID 段 (倒数第二个段)
+                // 提取文件中的 ID 段 (倒数第二个段) 和 Quality 段 (倒数第一个段)
                 const fileId = segments[segments.length - 2]
+                const fileQuality = segments[segments.length - 1]
                 const fileCleanId = cleanId(fileId)
 
                 // 严格全等匹配逻辑
@@ -220,13 +267,95 @@ export const checkCache = (songInfo: any, username?: string) => {
                     (fileCleanId === targetCleanId)
 
                 if (isMatch) {
+                    // 如果请求明确指定了要精确匹配音质，并且质量不一致，则跳过
+                    if (songInfo.exactQuality && songInfo.quality && fileQuality !== String(songInfo.quality)) {
+                        continue;
+                    }
+
+                    console.log(`[FileCache] HIT match: ${file} in ${userDir}`)
                     const filePath = path.join(dirPath, file)
-                    return {
+                    matchedFiles.push({
                         exists: true,
                         path: filePath,
                         filename: file,
                         foundIn: userDir,
+                        quality: fileQuality,
                         url: `/api/music/cache/file/${encodeURIComponent(userDir)}/${encodeURIComponent(file)}`
+                    })
+                }
+            }
+        } catch (e) { continue }
+    }
+
+    if (matchedFiles.length > 0) {
+        // 音质优先级 (数值越小优先级越高)
+        const QUALITY_PRIORITY: Record<string, number> = {
+            'flac24bit': 1,
+            'flac': 2,
+            '320k': 3,
+            '128k': 4
+        }
+
+        matchedFiles.sort((a, b) => {
+            const getRank = (q: string) => QUALITY_PRIORITY[q] || 99
+            return getRank(a.quality) - getRank(b.quality)
+        })
+
+        return matchedFiles[0]
+    }
+
+    return { exists: false }
+}
+
+export const checkLyricCache = (songInfo: any, username?: string) => {
+    let baseDir = ''
+    if (currentCacheLocation === CACHE_ROOTS.DATA) {
+        baseDir = path.join((global as any).lx.dataPath, 'cache')
+    } else {
+        baseDir = path.join(process.cwd(), 'cache')
+    }
+
+    if (!fs.existsSync(baseDir)) return { exists: false }
+
+    const targetId = String(songInfo.songmid || songInfo.songId || songInfo.id || '')
+    const cleanId = (id: string) => String(id || '').replace(/^(tx|mg|wy|kg|kw|bd|mg)_/, '')
+    const targetCleanId = cleanId(targetId)
+
+    const dirsToCheck: string[] = []
+    if (username && username !== '_open') dirsToCheck.push(username)
+    dirsToCheck.push('_open')
+
+    // 我们只需要找后缀为 .lrc，且 id 符合的那个文件
+    for (const userDir of dirsToCheck) {
+        const dirPath = path.join(baseDir, userDir)
+        if (!fs.existsSync(dirPath)) continue
+
+        try {
+            const files = fs.readdirSync(dirPath)
+            for (const file of files) {
+                if (!file.endsWith('.lrc')) continue
+
+                const fileNameWithoutExt = file.substring(0, file.lastIndexOf('.'))
+                const segments = fileNameWithoutExt.split('_-_')
+                if (segments.length < 2) continue
+
+                // fileId 为倒数第二个段
+                const fileId = segments[segments.length - 2]
+                const fileCleanId = cleanId(fileId)
+
+                const isMatch = (fileId === targetId) ||
+                    (fileCleanId === targetId) ||
+                    (fileId === targetCleanId) ||
+                    (fileCleanId === targetCleanId)
+
+                if (isMatch) {
+                    const filePath = path.join(dirPath, file)
+                    const content = fs.readFileSync(filePath, 'utf-8')
+                    return {
+                        exists: true,
+                        path: filePath,
+                        content: parseLyrics(content),
+                        filename: file
                     }
                 }
             }
@@ -236,122 +365,233 @@ export const checkCache = (songInfo: any, username?: string) => {
     return { exists: false }
 }
 
-export const downloadAndCache = async (songInfo: any, url: string, quality?: string, username?: string) => {
+export const saveLyricCache = (songInfo: any, lyricsObj: any, username?: string) => {
+    try {
+        const dir = ensureDir(username)
+        let baseName: string
+
+        // 优先使用传入的音质字段直接生成文件名（最可靠，避免时序问题）
+        if (songInfo.quality) {
+            baseName = getFileName(songInfo, songInfo.quality)
+        } else {
+            // quality 未传时，才尝试查找已有音频缓存文件名
+            const existingAudio = checkCache({ ...songInfo, exactQuality: false }, username, true)
+            if (existingAudio && existingAudio.exists && existingAudio.filename) {
+                baseName = existingAudio.filename.substring(0, existingAudio.filename.lastIndexOf('.'))
+            } else {
+                // 最后兜底：unknown 音质（不依赖全局配置，避免张冠李戴）
+                baseName = getFileName(songInfo, 'unknown')
+            }
+        }
+        const finalPath = path.join(dir, baseName + '.lrc')
+
+        // 排版歌词
+        const formattedLrc = buildLyrics(lyricsObj)
+        if (!formattedLrc) {
+            console.log(`[FileCache] Empty lyrics for ${baseName}, skip saving.`)
+            return false
+        }
+
+        fs.writeFileSync(finalPath, formattedLrc, { encoding: 'utf-8' })
+        console.log(`[FileCache] Lyric cached saved to: ${finalPath}`)
+        return true
+    } catch (err: any) {
+        console.error(`[FileCache] Lyric cache save failed: ${err.message}`)
+        return false
+    }
+}
+
+export const downloadAndCache = async (songInfo: any, url: string, quality?: string, username?: string, signal?: AbortSignal) => {
     const dir = ensureDir(username)
     const baseName = getFileName(songInfo, quality)
     const tempPath = path.join(dir, baseName + '.tmp')
+    const songKey = String(songInfo.id || songInfo.songmid)
 
-    // console.log(`[FileCache] Starting download for: ${baseName} from ${url}`)
+    // Handle initial signal
+    if (signal?.aborted) return
+
     console.log(`[FileCache] Starting download for: ${baseName}`)
 
     return new Promise<void>((resolve, reject) => {
         const protocol = url.startsWith('https') ? https : http
+        let req: http.ClientRequest
+        let settled = false  // 防止 resolve/reject 被多次调用
 
-        const req = protocol.get(url, (res) => {
+        const settle = (fn: () => void) => {
+            if (settled) return
+            settled = true
+            if (signal) signal.removeEventListener('abort', abortHandler)
+            fn()
+        }
+
+        const abortHandler = () => {
+            console.log(`[FileCache] ABORTING task: ${songKey} (base: ${baseName})`)
+            if (req) {
+                console.log(`[FileCache] Destroying request for: ${songKey}`)
+                req.destroy()
+            }
+            if (fs.existsSync(tempPath)) {
+                console.log(`[FileCache] Deleting temp file: ${tempPath}`)
+                fs.unlink(tempPath, () => { })
+            }
+            cacheProgress.delete(songKey)
+            settle(() => reject(new Error('Aborted')))
+        }
+
+        if (signal) signal.addEventListener('abort', abortHandler)
+
+        req = protocol.get(url, (res) => {
             if (res.statusCode !== 200) {
                 fs.unlink(tempPath, () => { })
-                reject(new Error(`Failed to download, status: ${res.statusCode}`))
+                cacheProgress.set(songKey, { progress: 0, status: 'error' })
+                settle(() => reject(new Error(`Failed to download, status: ${res.statusCode}`)))
                 return
             }
 
-            // Determine extension from Content-Type if possible
-            const contentType = res.headers['content-type']
-            let ext = '.mp3' // default
-            if (contentType) {
-                if (contentType.includes('flac')) ext = '.flac'
-                else if (contentType.includes('mp4') || contentType.includes('m4a')) ext = '.m4a'
-                else if (contentType.includes('ogg')) ext = '.ogg'
-                else if (contentType.includes('wav')) ext = '.wav'
-            }
+            cacheProgress.set(songKey, { progress: 0, status: 'downloading' })
+            const total = parseInt(res.headers['content-length'] || '0', 10)
+            let received = 0
 
-            const finalPath = path.join(dir, baseName + ext)
+            // 根据 Content-Type 确定扩展名
+            const contentType = res.headers['content-type'] || ''
+            let headerExt = ''
+            if (contentType.includes('audio/mpeg')) headerExt = '.mp3'
+            else if (contentType.includes('audio/flac')) headerExt = '.flac'
+            else if (contentType.includes('audio/ogg')) headerExt = '.ogg'
+            else if (contentType.includes('audio/x-m4a') || contentType.includes('video/mp4')) headerExt = '.m4a'
+            else if (contentType.includes('audio/wav')) headerExt = '.wav'
+
             const fileStream = fs.createWriteStream(tempPath)
+
+            res.on('data', (chunk) => {
+                received += chunk.length
+                if (total > 0) {
+                    const progress = Math.round((received / total) * 100)
+                    cacheProgress.set(songKey, { progress, status: 'downloading', total, received })
+                }
+            })
 
             res.pipe(fileStream)
 
-            fileStream.on('finish', () => {
-                fileStream.close()
-                // Rename temp to final
+            fileStream.on('close', () => {
+                // 若已因 abort 提前结束，直接忽略
+                if (settled) return
+
+                cacheProgress.set(songKey, { progress: 100, status: 'tagging' })
+
+                const ext = headerExt || '.mp3'
+                const finalPath = path.join(dir, baseName + ext)
+
+                // 若 .tmp 已不存在（极端竞态），检查终态文件是否已经存在
+                if (!fs.existsSync(tempPath)) {
+                    if (fs.existsSync(finalPath)) {
+                        console.log(`[FileCache] .tmp already gone but final file exists, treating as success: ${finalPath}`)
+                        settle(() => resolve())
+                    } else {
+                        console.warn(`[FileCache] .tmp gone and final file missing, skipping: ${baseName}`)
+                        settle(() => reject(new Error(`Temp file missing: ${tempPath}`)))
+                    }
+                    return
+                }
+
+                // 正常 rename
                 fs.rename(tempPath, finalPath, async (err) => {
                     if (err) {
                         fs.unlink(tempPath, () => { })
-                        reject(err)
-                    } else {
-                        console.log(`[FileCache] Cached saved to: ${finalPath}`)
+                        settle(() => reject(err))
+                        return
+                    }
 
-                        // [Enhancement] Write ID3 Tags for MP3 files
-                        if (ext === '.mp3') {
+                    console.log(`[FileCache] Cached saved to: ${finalPath} (${ext})`)
+
+                    // 写入音频 Metadata
+                    try {
+                        const songName = songInfo.name || 'Unknown'
+                        const artist = songInfo.singer || 'Unknown'
+                        const album = songInfo.albumName || (songInfo.meta && songInfo.meta.albumName) || ''
+
+                        let imageBuffer: Buffer | undefined
+                        const imageUrl = songInfo.img || (songInfo.meta && songInfo.meta.picUrl) ||
+                            (songInfo.album && (songInfo.album.picUrl || songInfo.album.img))
+
+                        if (imageUrl && imageUrl.startsWith('http')) {
                             try {
-                                const songName = songInfo.name || 'Unknown'
-                                const artist = songInfo.singer || 'Unknown'
-                                const album = songInfo.albumName || (songInfo.meta && songInfo.meta.albumName) || ''
-
-                                // Fetch cover image if available
-                                let imageBuffer: Buffer | undefined
-                                const imageUrl = songInfo.img || (songInfo.meta && songInfo.meta.picUrl) ||
-                                    (songInfo.album && (songInfo.album.picUrl || songInfo.album.img))
-
-                                if (imageUrl && imageUrl.startsWith('http')) {
-                                    try {
-                                        imageBuffer = await new Promise((resCover, rejCover) => {
-                                            const imgProtocol = imageUrl.startsWith('https') ? https : http
-                                            imgProtocol.get(imageUrl, (imgRes) => {
-                                                if (imgRes.statusCode !== 200) {
-                                                    rejCover(new Error('Failed to fetch cover'))
-                                                    return
-                                                }
-                                                const chunks: any[] = []
-                                                imgRes.on('data', (chunk) => chunks.push(chunk))
-                                                imgRes.on('end', () => resCover(Buffer.concat(chunks)))
-                                                imgRes.on('error', rejCover)
-                                            }).on('error', rejCover)
-                                        })
-                                    } catch (e) {
-                                        console.warn(`[FileCache] Failed to fetch cover for ID3: ${songName}`, e)
-                                    }
-                                }
-
-                                const tags: any = {
-                                    title: songName,
-                                    artist: artist,
-                                    album: album,
-                                }
-                                if (imageBuffer) {
-                                    tags.image = {
-                                        mime: "image/jpeg",
-                                        type: { id: 3, name: "front cover" }, // front cover
-                                        description: "Cover",
-                                        imageBuffer: imageBuffer,
-                                    }
-                                }
-
-                                const success = NodeID3.write(tags, finalPath)
-                                if (success) {
-                                    console.log(`[FileCache] ID3 Tags written for: ${songName}`)
-                                } else {
-                                    console.warn(`[FileCache] Failed to write ID3 Tags for: ${songName}`)
-                                }
-                            } catch (id3Err) {
-                                console.error(`[FileCache] ID3 tagging error:`, id3Err)
+                                imageBuffer = await new Promise((resCover, rejCover) => {
+                                    const imgProtocol = imageUrl.startsWith('https') ? https : http
+                                    imgProtocol.get(imageUrl, (imgRes) => {
+                                        if (imgRes.statusCode !== 200) { rejCover(new Error('Failed to fetch cover')); return }
+                                        const chunks: any[] = []
+                                        imgRes.on('data', (chunk) => chunks.push(chunk))
+                                        imgRes.on('end', () => resCover(Buffer.concat(chunks)))
+                                        imgRes.on('error', rejCover)
+                                    }).on('error', rejCover)
+                                })
+                            } catch (e) {
+                                console.warn(`[FileCache] Failed to fetch cover for tagging: ${songName}`, e)
                             }
                         }
 
-                        resolve()
+                        const tagger = new MusicTagger()
+                        tagger.loadPath(finalPath)
+                        tagger.title = songName
+                        tagger.artist = artist
+                        tagger.album = album
+
+                        if (imageBuffer) {
+                            try {
+                                const pic = new MetaPicture('image/jpeg', new Uint8Array(imageBuffer), 'Cover')
+                                tagger.pictures = [pic]
+                            } catch (picErr) {
+                                console.error(`[FileCache] Error setting cover:`, picErr)
+                            }
+                        }
+
+                        tagger.save()
+                        tagger.dispose()
+                        console.log(`[FileCache] Metadata written for: ${songName} (${ext})`)
+                        cacheProgress.set(songKey, { progress: 100, status: 'finished' })
+                        setTimeout(() => cacheProgress.delete(songKey), 30000)
+                    } catch (tagErr) {
+                        console.error(`[FileCache] Metadata tagging error:`, tagErr)
+                        cacheProgress.set(songKey, { progress: 100, status: 'finished' })
                     }
+
+                    settle(() => resolve())
                 })
             })
 
             fileStream.on('error', (err) => {
                 fs.unlink(tempPath, () => { })
-                reject(err)
+                settle(() => reject(err))
             })
         })
 
         req.on('error', (err) => {
             fs.unlink(tempPath, () => { })
-            reject(err)
+            settle(() => reject(err))
         })
     })
+}
+
+/**
+ * Stop active tasks for a user
+ */
+export const stopUserTasks = (username: string, songKey?: string) => {
+    const tasks = activeTasks.get(username)
+    if (!tasks) return
+
+    if (songKey) {
+        // Stop specific task
+        const idx = tasks.findIndex(t => t.songKey === songKey)
+        if (idx !== -1) {
+            tasks[idx].controller.abort()
+            tasks.splice(idx, 1)
+        }
+    } else {
+        // Stop all tasks for user
+        tasks.forEach(t => t.controller.abort())
+        activeTasks.delete(username)
+    }
 }
 
 export const serveCacheFile = (req: http.IncomingMessage, res: http.ServerResponse, filename: string, username?: string) => {
@@ -419,7 +659,7 @@ export const getCacheStats = (username?: string) => {
     let totalSize = 0
     let fileCount = 0
 
-    const extensions = ['.mp3', '.flac', '.m4a', '.ogg', '.wav']
+    const extensions = ['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.lrc']
 
     for (const file of files) {
         const ext = path.extname(file).toLowerCase()
@@ -428,7 +668,9 @@ export const getCacheStats = (username?: string) => {
             try {
                 const stats = fs.statSync(filePath)
                 totalSize += stats.size
-                fileCount++
+                if (ext !== '.lrc') {
+                    fileCount++
+                }
             } catch (e) {
                 // Skip files that can't be stat'd
             }
@@ -450,7 +692,7 @@ export const clearAllCache = (username?: string) => {
     let deletedCount = 0
     let freedSize = 0
 
-    const extensions = ['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.tmp']
+    const extensions = ['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.lrc', '.tmp']
 
     for (const file of files) {
         const ext = path.extname(file).toLowerCase()
@@ -470,5 +712,37 @@ export const clearAllCache = (username?: string) => {
     }
 
     console.log(`[FileCache] Cache cleared: ${deletedCount} files, ${freedSize} bytes freed`)
+    return { deletedCount, freedSize }
+}
+
+// Clear all lyric cache files (.lrc)
+export const clearLyricCache = (username?: string) => {
+    const dir = getCacheDir(username)
+
+    if (!fs.existsSync(dir)) {
+        return { deletedCount: 0, freedSize: 0 }
+    }
+
+    const files = fs.readdirSync(dir)
+    let deletedCount = 0
+    let freedSize = 0
+
+    for (const file of files) {
+        if (file.endsWith('.lrc')) {
+            const filePath = path.join(dir, file)
+            try {
+                const stats = fs.statSync(filePath)
+                const size = stats.size
+                fs.unlinkSync(filePath)
+                deletedCount++
+                freedSize += size
+                console.log(`[FileCache] Deleted Lyric: ${file} (${size} bytes)`)
+            } catch (e: any) {
+                console.error(`[FileCache] Failed to delete lyric ${file}:`, e.message)
+            }
+        }
+    }
+
+    console.log(`[FileCache] Lyric Cache cleared: ${deletedCount} files, ${freedSize} bytes freed`)
     return { deletedCount, freedSize }
 }

@@ -190,6 +190,7 @@ try {
 
         _findCurLineNum(curTime, startIndex = 0) {
             if (curTime <= 0) return 0
+            if (!this.lines || !this.lines.length) return 0
             const length = this.lines.length
             for (let index = startIndex; index < length; index++) {
                 if (curTime < this.lines[index].time) {
@@ -250,7 +251,7 @@ try {
         }
 
         play(curTime = 0) {
-            if (!this.lines.length) return
+            if (!this.lines || !this.lines.length) return
             if (this.isPlay) {
                 // 如果已经在播放，检查当前时间差，如果偏差较大则重置
                 const currentTime = this._currentTime();

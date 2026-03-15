@@ -11,11 +11,41 @@ function handleBatchSelect(songId, isChecked) {
             if (song) window.selectedSongObjects.set(id, song);
         }
     } else {
-        window.selectedItems.add(id);
         window.selectedItems.delete(id);
         window.selectedSongObjects.delete(id);
     }
     updateBatchToolbar();
+
+    // Partial UI Update: Find rows and checkboxes with this song ID and update them
+    // This handles both the grid row highlight and the checkbox state
+    const elements = document.querySelectorAll(`[data-song-id="${id}"]`);
+    elements.forEach(el => {
+        if (el.classList.contains('grid')) {
+            // It's a row
+            if (isChecked) {
+                el.classList.add('row-selected', 'ring-1', 'ring-emerald-500/30');
+            } else {
+                el.classList.remove('row-selected', 'ring-1', 'ring-emerald-500/30');
+            }
+        }
+        if (el.classList.contains('batch-checkbox')) {
+            // It's a checkbox
+            el.checked = isChecked;
+        }
+    });
+}
+
+function refreshBatchUI() {
+    // Check if song list detail is open
+    const slDetail = document.getElementById('songlist-detail-view');
+    if (slDetail && !slDetail.classList.contains('hidden')) {
+        if (window.SongListManager) window.SongListManager.renderDetail();
+    } else {
+        // Fallback to main renderResults (for search view)
+        if (typeof renderResults === 'function' && window.viewingPlaylist) {
+            renderResults(window.viewingPlaylist);
+        }
+    }
 }
 
 function toggleBatchMode() {
@@ -23,13 +53,7 @@ function toggleBatchMode() {
     window.selectedItems.clear();
     window.selectedSongObjects.clear();
 
-    // Check if song list detail is open
-    const slDetail = document.getElementById('songlist-detail-view');
-    if (slDetail && !slDetail.classList.contains('hidden')) {
-        if (window.SongListManager) window.SongListManager.renderDetail();
-    } else {
-        renderResults(window.viewingPlaylist);
-    }
+    refreshBatchUI();
 
     updateBatchToolbar();
 
@@ -58,12 +82,7 @@ function selectAllVisible() {
         window.selectedSongObjects.set(id, item);
     });
 
-    const slDetail = document.getElementById('songlist-detail-view');
-    if (slDetail && !slDetail.classList.contains('hidden')) {
-        if (window.SongListManager) window.SongListManager.renderDetail();
-    } else {
-        renderResults(window.viewingPlaylist);
-    }
+    refreshBatchUI();
     updateBatchToolbar();
 }
 
@@ -71,12 +90,7 @@ function deselectAll() {
     window.selectedItems.clear();
     window.selectedSongObjects.clear();
 
-    const slDetail = document.getElementById('songlist-detail-view');
-    if (slDetail && !slDetail.classList.contains('hidden')) {
-        if (window.SongListManager) window.SongListManager.renderDetail();
-    } else {
-        renderResults(window.viewingPlaylist);
-    }
+    refreshBatchUI();
     updateBatchToolbar();
 }
 

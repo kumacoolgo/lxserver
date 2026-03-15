@@ -1,11 +1,12 @@
 import http, { type IncomingMessage } from 'node:http'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { registerLocalSyncEvent, callObj, sync } from './sync'
 import { authCode, authConnect } from './auth'
-import { getAddress, sendStatus, decryptMsg, encryptMsg } from '@/utils/tools'
-import { accessLog, startupLog, syncLog } from '@/utils/log4js'
+import { getAddress, sendStatus, decryptMsg, encryptMsg, getIP } from '@/utils/tools'
+import { accessLog, startupLog, syncLog, loginLog } from '@/utils/log4js'
 import { SYNC_CLOSE_CODE, SYNC_CODE, File } from '@/constants'
 import { getUserSpace, releaseUserSpace, getUserName, getServerId } from '@/user'
 import { createMsg2call } from 'message2call'
@@ -18,6 +19,7 @@ import { initUserApis, callUserApiGetMusicUrl, isSourceSupported, getLoadedApis 
 import * as customSourceHandlers from './customSourceHandlers'
 import * as fileCache from './fileCache'
 import crypto from 'node:crypto'
+const { MusicTagger, MetaPicture } = require('music-tag-native')
 
 // ===== Player Session Store =====
 const playerSessions = new Map<string, { createdAt: number }>()
@@ -104,6 +106,10 @@ const normalizeSongInfo = (songInfo: any) => {
   if (!songInfo.albumName && meta.albumName) songInfo.albumName = meta.albumName
   if (!songInfo.albumId && meta.albumId) songInfo.albumId = meta.albumId
   if (!songInfo.img && meta.picUrl) songInfo.img = meta.picUrl
+  if (!songInfo.name && meta.name) songInfo.name = meta.name
+  if (!songInfo.singer && meta.singer) songInfo.singer = meta.singer
+  if (!songInfo.source && meta.source) songInfo.source = meta.source
+  if (!songInfo.interval && meta.interval) songInfo.interval = meta.interval
 
   // 3. 处理通用 ID 转换 (id -> songmid)
   if (!songInfo.songmid) {
@@ -121,6 +127,11 @@ const normalizeSongInfo = (songInfo: any) => {
 
   // 4. 针对各平台 SDK 所需的特定字段进行补全
   switch (songInfo.source) {
+    case 'wy': // 网易
+      if (!songInfo.id && meta.songId) songInfo.id = Number(meta.songId)
+      if (!songInfo.songmid && songInfo.id) songInfo.songmid = String(songInfo.id)
+      break
+
     case 'kg': // 酷狗
       if (!songInfo.hash && meta.hash) songInfo.hash = meta.hash
       // 兼容某些 SDK 可能需要的 songmid 格式 (数字_哈希 或 仅哈Hash)
@@ -357,6 +368,8 @@ const serveStatic = (req: IncomingMessage, res: http.ServerResponse, filePath: s
 
 const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Promise((resolve, reject) => {
   const httpServer = http.createServer(async (req, res) => {
+    const ip = getIP(req)
+    accessLog.info(`${req.method} ${req.url} from ${ip}`)
     // console.log(req.url)
     const urlObj = new URL(req.url ?? '', `http://${req.headers.host}`)
     const pathname = urlObj.pathname
@@ -442,9 +455,11 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
           try {
             const { password } = JSON.parse(body)
             if (password === global.lx.config['frontend.password']) {
+              loginLog.info(`Admin login success from ${ip}`)
               res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ success: true }))
             } else {
+              loginLog.warn(`Admin login failed from ${ip}`)
               res.writeHead(401, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ success: false }))
             }
@@ -920,9 +935,11 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
             }
             const user = global.lx.config.users.find(u => u.name === username && u.password === password)
             if (user) {
+              loginLog.info(`User login success: ${username} from ${ip}`)
               res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ success: true }))
             } else {
+              loginLog.warn(`User login failed: ${username} from ${ip}`)
               res.writeHead(401, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ success: false, message: 'Invalid credentials' }))
             }
@@ -1149,6 +1166,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         const songmid = urlObj.searchParams.get('songmid')
         const songId = urlObj.searchParams.get('songId')
         const quality = urlObj.searchParams.get('quality')
+        const exactQuality = urlObj.searchParams.get('exactQuality') === '1' || urlObj.searchParams.get('exactQuality') === 'true'
 
         if (!name || !singer || !source || (!songmid && !songId)) {
           res.writeHead(400)
@@ -1157,7 +1175,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         }
 
         const username = req.headers['x-user-name'] as string
-        const result = fileCache.checkCache({ name, singer, source, songmid, songId, quality }, username)
+        const result = fileCache.checkCache({ name, singer, source, songmid, songId, quality, exactQuality }, username)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result))
         return
@@ -1174,17 +1192,69 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
               return
             }
 
-            // Fire and forget (background download)
-            const username = req.headers['x-user-name'] as string
-            void fileCache.downloadAndCache(songInfo, url, quality, username)
+            // Fire and forget (background download) with Abort support
+            const username = (req.headers['x-user-name'] as string) || ''
+            const songKey = String(songInfo.id || songInfo.songmid)
+
+            console.log(`[Cache] Registering active task: ${songKey} for user: "${username}"`)
+
+            const controller = new AbortController()
+            let userTasks = fileCache.activeTasks.get(username)
+            if (!userTasks) {
+              userTasks = []
+              fileCache.activeTasks.set(username, userTasks)
+            }
+            userTasks.push({ songKey, controller })
+
+            void fileCache.downloadAndCache(songInfo, url, quality, username, controller.signal)
               .then(() => console.log(`[Cache] Downloaded ${songInfo.name} for ${username || '_open'}`))
-              .catch(err => console.error(`[Cache] Failed to download ${songInfo.name}:`, err))
+              .catch(err => {
+                if (err.message === 'Aborted') {
+                  console.log(`[Cache] Task aborted for ${songInfo.name}`)
+                } else {
+                  console.error(`[Cache] Failed to download ${songInfo.name}:`, err)
+                }
+              })
+              .finally(() => {
+                // Cleanup active task
+                const tasks = fileCache.activeTasks.get(username)
+                if (tasks) {
+                  const idx = tasks.findIndex(t => t.songKey === songKey)
+                  if (idx !== -1) {
+                    tasks.splice(idx, 1)
+                    console.log(`[Cache] Cleaned up active task: ${songKey} for user: "${username}"`)
+                  }
+                }
+              })
 
             res.writeHead(200)
             res.end(JSON.stringify({ success: true, message: 'Download started' }))
           } catch (e) {
             res.writeHead(500)
             res.end('Error')
+          }
+        })
+        return
+      }
+
+      // [New] Stop Cache Task
+      if (pathname === '/api/music/cache/stop' && req.method === 'POST') {
+        const username = (req.headers['x-user-name'] as string) || ''
+        void readBody(req).then(body => {
+          try {
+            const { songKey, all } = JSON.parse(body)
+            if (all) {
+              fileCache.stopUserTasks(username)
+              console.log(`[Cache] Stopped all tasks for user: ${username}`)
+            } else if (songKey) {
+              fileCache.stopUserTasks(username, songKey)
+              console.log(`[Cache] Stopped task ${songKey} for user: ${username}`)
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: true }))
+          } catch (e: any) {
+            res.writeHead(400)
+            res.end(e.message)
           }
         })
         return
@@ -1216,7 +1286,6 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         return
       }
 
-      // 6. Clear All Cache
       if (pathname === '/api/music/cache/clear' && req.method === 'POST') {
         const username = req.headers['x-user-name'] as string
         try {
@@ -1227,6 +1296,33 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ success: false, message: e.message || 'Failed to clear cache' }))
         }
+        return
+      }
+
+      if (pathname === '/api/music/cache/lyric/clear' && req.method === 'POST') {
+        const username = req.headers['x-user-name'] as string
+        try {
+          const result = fileCache.clearLyricCache(username)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ success: true, data: result }))
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ success: false, message: e.message || 'Failed to clear lyric cache' }))
+        }
+        return
+      }
+
+      // 7. Get Cache Progress
+      if (pathname === '/api/music/cache/progress' && req.method === 'GET') {
+        const ids = urlObj.searchParams.get('ids')?.split(',') || []
+        const progress: any = {}
+        ids.forEach(id => {
+          if (fileCache.cacheProgress.has(id)) {
+            progress[id] = fileCache.cacheProgress.get(id)
+          }
+        })
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true, data: progress }))
         return
       }
 
@@ -1252,10 +1348,13 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
           res.end('Missing filename')
           return
         }
-        const cover: any = fileCache.getCacheCover(filename, username)
-        if (cover && typeof cover === 'object' && cover.imageBuffer) {
-          res.writeHead(200, { 'Content-Type': cover.mime || 'image/jpeg' })
-          res.end(cover.imageBuffer)
+        const cover = fileCache.getCacheCover(filename, username) as any
+        if (cover && cover.data) {
+          res.writeHead(200, {
+            'Content-Type': cover.mime || 'image/jpeg',
+            'Cache-Control': 'public, max-age=86400'
+          })
+          res.end(cover.data)
         } else {
           // Fallback to logo or 404
           res.writeHead(404)
@@ -1349,6 +1448,53 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         return
       }
 
+      // [新增] File Cache Lyric APIs
+      if (pathname === '/api/music/cache/lyric' && req.method === 'GET') {
+        const source = urlObj.searchParams.get('source')
+        const songmid = urlObj.searchParams.get('songmid')
+        const songId = urlObj.searchParams.get('songId')
+        const username = req.headers['x-user-name'] as string
+
+        if (!source || (!songmid && !songId)) {
+          res.writeHead(400)
+          res.end('Missing source or songmid')
+          return
+        }
+
+        const result = fileCache.checkLyricCache({ source, songmid, id: songId }, username)
+        if (result.exists) {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ success: true, data: result.content }))
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ success: false, message: 'Not found in cache' }))
+        }
+        return
+      }
+
+      if (pathname === '/api/music/cache/lyric' && req.method === 'POST') {
+        void readBody(req).then(body => {
+          try {
+            const { songInfo, lyricsObj } = JSON.parse(body)
+            const username = req.headers['x-user-name'] as string
+
+            if (!songInfo || !lyricsObj) {
+              res.writeHead(400)
+              res.end('Missing parameters')
+              return
+            }
+
+            const success = fileCache.saveLyricCache(songInfo, lyricsObj, username)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success }))
+          } catch (e: any) {
+            res.writeHead(500)
+            res.end('Server internal error')
+          }
+        })
+        return
+      }
+
       // [新增] Download Proxy API
       if (pathname === '/api/music/download' && req.method === 'GET') {
         const urlStr = urlObj.searchParams.get('url')
@@ -1362,7 +1508,9 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         }
 
         try {
-          console.log(`[DownloadProxy] Fetching: ${urlStr} (Inline: ${isInline})`)
+          const isTaggingMode = urlObj.searchParams.get('tag') === '1'
+          const taskId = urlObj.searchParams.get('taskId')
+          console.log(`[DownloadProxy] Fetching: ${urlStr} (Tagging: ${isTaggingMode}, TaskId: ${taskId})`)
 
           // 使用原生 http/https 模块以获得最高的流媒体转发性能
           const http = require('http')
@@ -1424,6 +1572,104 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
 
                 if (!isInline) {
                   headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(filename)}"`
+                }
+
+                // [Unified metadata] Tagging support for browser download
+                // NOTE: Local fetch from browser often sends Range: bytes=0- for full download
+                const rangeHeader = req.headers['range']
+                const isFullRange = rangeHeader === 'bytes=0-'
+
+                if (isTaggingMode && (!rangeHeader || isFullRange)) {
+                  const songName = urlObj.searchParams.get('name') || ''
+                  const artist = urlObj.searchParams.get('singer') || ''
+                  const album = urlObj.searchParams.get('album') || ''
+                  const imageUrl = urlObj.searchParams.get('pic') || ''
+
+                  const chunks: any[] = []
+                  let received = 0
+                  const total = parseInt(proxyRes.headers['content-length'] as string || '0', 10)
+
+                  if (taskId) {
+                    fileCache.cacheProgress.set(taskId, { progress: 0, status: 'downloading', total, received: 0 })
+                  }
+
+                  proxyRes.on('data', (c: any) => {
+                    chunks.push(c)
+                    if (taskId) {
+                      received += c.length
+                      const progress = total > 0 ? Math.round((received / total) * 100) : 0
+                      fileCache.cacheProgress.set(taskId, { progress, status: 'downloading', total, received })
+                    }
+                  })
+                  proxyRes.on('end', async () => {
+                    if (taskId) {
+                      fileCache.cacheProgress.set(taskId, { progress: 100, status: 'tagging', total, received: total })
+                    }
+                    try {
+                      const buffer = Buffer.concat(chunks)
+                      if (buffer.length < 100) throw new Error('File too small, possibly invalid');
+
+                      // Use filename extension for temp file so MusicTagger can identify container format
+                      const ext = path.extname(filename) || '.mp3'
+                      const tempPath = path.join(os.tmpdir(), `lx_tag_${Date.now()}${ext}`)
+                      fs.writeFileSync(tempPath, new Uint8Array(buffer))
+
+                      const tagger = new MusicTagger()
+                      tagger.loadPath(tempPath)
+                      if (songName) tagger.title = songName
+                      if (artist) tagger.artist = artist
+                      if (album) tagger.album = album
+
+                      if (imageUrl) {
+                        try {
+                          let imgBuf: Buffer | null = null;
+                          if (imageUrl.startsWith('http')) {
+                            const imgResp = await (global as any).fetch(imageUrl)
+                            if (imgResp.ok) imgBuf = Buffer.from(await imgResp.arrayBuffer())
+                          } else if (imageUrl.startsWith('/api')) {
+                            // 内部 API 请求，使用请求头中的 host
+                            const hostLabel = req.headers.host || '127.0.0.1:2026'
+                            const internalUrl = `http://${hostLabel}${imageUrl}`
+                            const imgResp = await (global as any).fetch(internalUrl)
+                            if (imgResp.ok) imgBuf = Buffer.from(await imgResp.arrayBuffer())
+                          }
+
+                          if (imgBuf && imgBuf.length > 0) {
+                            try {
+                              // music-tag-native signature: (mime, data, type)
+                              tagger.pictures = [new MetaPicture('image/jpeg', new Uint8Array(imgBuf), 'Cover')]
+                            } catch (picErr) {
+                              console.warn('[DownloadProxy] MetaPicture creation failed:', picErr)
+                            }
+                          }
+                        } catch (e: any) {
+                          console.warn('[DownloadProxy] Picture fetch/embed failed:', imageUrl, e.message)
+                        }
+                      }
+                      tagger.save()
+                      console.log('[DownloadProxy] Metadata saved successfully for:', songName)
+                      tagger.dispose()
+
+                      if (taskId) {
+                        fileCache.cacheProgress.set(taskId, { progress: 100, status: 'finished', total, received: total })
+                        setTimeout(() => fileCache.cacheProgress.delete(taskId), 30000)
+                      }
+
+                      const tagged = fs.readFileSync(tempPath)
+                      fs.unlink(tempPath, () => { })
+                      headers['Content-Length'] = tagged.length.toString()
+                      if (!res.headersSent) {
+                        res.writeHead(200, headers)
+                        res.end(tagged)
+                      }
+                    } catch (e: any) {
+                      if (!res.headersSent) {
+                        res.writeHead(200, headers)
+                        res.end(Buffer.concat(chunks))
+                      }
+                    }
+                  })
+                  return
                 }
 
                 if (!res.headersSent) {
@@ -1700,12 +1946,14 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
             if (password === correctPassword) {
               const sessionId = generateSessionId()
               playerSessions.set(sessionId, { createdAt: Date.now() })
+              loginLog.info(`Player login success from ${ip}`)
               res.writeHead(200, {
                 'Content-Type': 'application/json',
                 'Set-Cookie': `${SESSION_COOKIE_NAME}=${sessionId}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${SESSION_TTL / 1000}`
               })
               res.end(JSON.stringify({ success: true }))
             } else {
+              loginLog.warn(`Player login failed from ${ip}`)
               res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ success: false }))
             }
@@ -1881,16 +2129,17 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
             if (result && result.url) {
               // 1. Resolve Redirects (301, 302, 307, etc.) to get direct link
               try {
-                // Only try to resolve if it looks like a remote URL
+                // Only try to resolve if it looks like a remote URL and is not already resolved
                 if (result.url.startsWith('http')) {
+                  console.log(`[MusicUrl] Resolving redirects for: ${songInfo.name} (${quality})`);
                   const needle = require('needle')
                   const checkRedirect = async (u: string, depth: number = 0): Promise<string> => {
                     if (depth > 3) return u // Max depth 3
                     try {
                       const resp = await needle('head', u, null, {
                         follow_max: 0,
-                        response_timeout: 3000,
-                        read_timeout: 3000,
+                        response_timeout: 4000, // Increase timeout slightly
+                        read_timeout: 4000,
                         headers: {
                           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                           'Referer': new URL(u).origin
@@ -1901,12 +2150,16 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
                         if (!nextUrl.startsWith('http')) {
                           try { nextUrl = new URL(nextUrl, u).href } catch (e) { }
                         }
-                        // console.log(`[MusicUrl] Resolving redirect (${resp.statusCode}): ${u} -> ${nextUrl}`)
-                        console.log(`[MusicUrl] Resolving redirect `)
+                        console.log(`[MusicUrl] Resolve redirect [${resp.statusCode}]: ${u.substring(0, 50)}... -> ${nextUrl.substring(0, 50)}...`)
                         return checkRedirect(nextUrl, depth + 1)
                       }
+                      // If error status but not redirect, return original
+                      if (resp.statusCode >= 400) {
+                        console.warn(`[MusicUrl] Redirect check failed with status ${resp.statusCode}, using original URL`);
+                        return u;
+                      }
                     } catch (e: any) {
-                      // console.warn(`[MusicUrl] Resolve check failed for ${u}:`, e.message)
+                      console.warn(`[MusicUrl] head check failed: ${e.message}`);
                     }
                     return u
                   }
@@ -1915,6 +2168,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
                   if (finalUrl !== result.url) {
                     result.url = finalUrl
                   }
+                  console.log(`[MusicUrl] Final Resolved URL: ${result.url.substring(0, 100)}...`);
                 }
               } catch (e) {
                 console.error('[MusicUrl] Resolve Error:', e)
@@ -2853,9 +3107,6 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         return
       }
 
-      res.writeHead(404)
-      res.end('Not Found')
-      return
     }
 
     const endUrl = `/${req.url?.split('/').at(-1) ?? ''}`
@@ -2914,7 +3165,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         }
 
         // 将 targetUserName 传递给 authCode
-        void authCode(req, res, lx.config.users, targetUserName)
+        void authCode(req, res, global.lx.config.users, targetUserName)
         break
       default:
         // Serve static files

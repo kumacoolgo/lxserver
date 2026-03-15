@@ -32,10 +32,19 @@ const createLogConfig = (logPath: string) => {
       console: {
         type: 'console',
       },
+      login: {
+        type: 'file',
+        filename: path.join(logPath, 'login.log'),
+        maxLogSize: 1024 * 1024 * 10,
+        category: 'login',
+        keepFileExt: true,
+        numBackups: 10,
+      },
     },
     categories: {
       default: { appenders: ['app', 'errors', 'console'], level: 'DEBUG' },
       access: { appenders: ['access'], level: 'ALL' },
+      login: { appenders: ['login'], level: 'ALL' },
     },
   }
 }
@@ -49,3 +58,4 @@ export const initLogger = () => {
 export const startupLog = log4js.getLogger('startup')
 export const syncLog = log4js.getLogger('sync')
 export const accessLog = log4js.getLogger('access')
+export const loginLog = log4js.getLogger('login')
