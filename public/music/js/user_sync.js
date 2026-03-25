@@ -488,15 +488,15 @@ class RemoteClient {
     async handleMessage(e) {
         let msg = e.data;
 
-        console.log('[Sync] 收到消息, 长度:', msg.length, '前50字符:', msg.substring(0, 50));
+        // console.log('[Sync] 收到消息, 长度:', msg.length, '前50字符:', msg.substring(0, 50));
 
         if (msg === 'ping') {
-            console.log('[Sync] 收到 ping (忽略)');
+            // console.log('[Sync] 收到 ping (忽略)');
             return;
         }
 
         if (msg === SYNC_CODE.helloMsg) {
-            console.log('[Sync] 收到 Hello 消息');
+            // console.log('[Sync] 收到 Hello 消息');
             return;
         }
 
@@ -509,7 +509,7 @@ class RemoteClient {
         if (msg.startsWith('cg_')) {
             try {
                 decoded = decodeData(msg);
-                console.log('[Sync] Gzip 解压成功, 明文长度:', decoded.length);
+                // console.log('[Sync] Gzip 解压成功, 明文长度:', decoded.length);
             } catch (e) {
                 console.error('[Sync] Gzip 解压失败:', e);
                 return;
@@ -519,7 +519,7 @@ class RemoteClient {
         // Step 2: Parse JSON
         try {
             const action = JSON.parse(decoded);
-            console.log('[Sync] JSON 解析成功, Action:', action.name || action.action || action.type);
+            // console.log('[Sync] JSON 解析成功, Action:', action.name || action.action || action.type);
             this.handleAction(action);
         } catch (e) {
             console.error('[Sync] JSON 解析失败:', e, '内容:', decoded.substring(0, 100));
@@ -552,7 +552,7 @@ class RemoteClient {
         let method = path ? path[0] : name; // Sometimes path is used, sometimes name
         if (name == 'onListSyncAction') method = 'onListSyncAction'; // Explicit check
 
-        console.log('[RPC] 处理调用:', method, 'Args:', args);
+        // console.log('[RPC] 处理调用:', method, 'Args:', args);
 
         // Define RPC Handlers
         const handlers = {
@@ -650,7 +650,7 @@ class RemoteClient {
 
         // Helper to send response (NO encryption, only compression)
         const sendResponse = async (response) => {
-            console.log('[RPC] 发送响应:', response.name, '错误:', response.error, '数据类型:', typeof response.data);
+            // console.log('[RPC] 发送响应:', response.name, '错误:', response.error, '数据类型:', typeof response.data);
 
             // Step 1: Stringify
             let jsonStr = JSON.stringify(response);
@@ -658,7 +658,7 @@ class RemoteClient {
             // Step 2: Compress if needed (>1024 bytes)
             let toSend = encodeData(jsonStr);
 
-            console.log('[RPC] 响应准备完成,长度:', toSend.length, '是否压缩:', toSend.startsWith('cg_'));
+            // console.log('[RPC] 响应准备完成,长度:', toSend.length, '是否压缩:', toSend.startsWith('cg_'));
             this.ws.send(toSend);
         };
 
@@ -747,8 +747,11 @@ const SyncManager = {
         this.mode = 'local';
     },
 
-    initRemote(url, code, handlers) {
+    initRemote(url, code, handlers, authInfo) {
         this.client = new RemoteClient(url, code);
+        if (authInfo) {
+            this.client.authInfo = authInfo;
+        }
         if (handlers) {
             this.client.listHandlers = handlers;
         }

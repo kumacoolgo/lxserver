@@ -5586,8 +5586,20 @@ function selectSyncMode(mode) {
         mode += '_full';
     }
 
+    // 反转客户端的视角到服务端视角
+    const TRANS_MODE = {
+        merge_local_remote: 'merge_remote_local',
+        merge_remote_local: 'merge_local_remote',
+        overwrite_local_remote: 'overwrite_remote_local',
+        overwrite_remote_local: 'overwrite_local_remote',
+        overwrite_local_remote_full: 'overwrite_remote_local_full',
+        overwrite_remote_local_full: 'overwrite_local_remote_full',
+        cancel: 'cancel',
+    };
+    const translatedMode = TRANS_MODE[mode] || mode;
+
     if (syncModeResolve) {
-        syncModeResolve(mode);
+        syncModeResolve(translatedMode);
         syncModeResolve = null;
     }
     closeSyncModal();
@@ -5636,6 +5648,14 @@ function handleRemoteConnect() {
     statusEl.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500"></i> 正在连接远程服务器...';
 
     try {
+        let authInfo = null;
+        if (localStorage.getItem('lx_sync_url') === url && localStorage.getItem('lx_sync_code') === code) {
+            try {
+                const savedStr = localStorage.getItem('lx_ws_auth');
+                if (savedStr) authInfo = JSON.parse(savedStr);
+            } catch (e) { }
+        }
+
         syncManager.initRemote(url, code, {
             getData: async () => {
                 // Try to load from cache first
@@ -5670,7 +5690,7 @@ function handleRemoteConnect() {
                     showSyncModeModal();
                 });
             }
-        });
+        }, authInfo);
 
         // Setup Callbacks
         syncManager.client.onLogin = async (success, msg) => {

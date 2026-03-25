@@ -1440,12 +1440,19 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
       // [New] Fetch Lyrics
       if (pathname === '/api/music/lyric' && req.method === 'GET') {
         const source = urlObj.searchParams.get('source')
-        const songmid = urlObj.searchParams.get('songmid')
+        // [Optimization] Accept multiple ID param names for better client compatibility
+        let songmid = urlObj.searchParams.get('songmid') || urlObj.searchParams.get('songId') || urlObj.searchParams.get('id')
 
         if (!source || !songmid) {
           res.writeHead(400)
           res.end('Missing source or songmid')
           return
+        }
+
+        // [Fix] Normalize ID by stripping source prefix if present (e.g., "tx_001..." -> "001...")
+        const sourcePrefix = `${source}_`
+        if (songmid.startsWith(sourcePrefix)) {
+          songmid = songmid.slice(sourcePrefix.length)
         }
 
         try {
@@ -1474,14 +1481,6 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
           const requestObj = musicSdk[source].getLyric(songInfo)
           const lyricInfo = await requestObj.promise
 
-          // console.log(`[Lyric] SDK 返回数据详情 [${source} - ${songmid}]:`, {
-          //   hasLrc: !!(lyricInfo.lyric || lyricInfo.lrc),
-          //   hasTlrc: !!lyricInfo.tlyric,
-          //   hasRlrc: !!lyricInfo.rlyric,
-          //   hasKlrc: !!(lyricInfo.klyric || lyricInfo.lxlyric),
-          //   keys: Object.keys(lyricInfo)
-          // });
-
           res.writeHead(200, {
             'Content-Type': 'application/json',
             'Cache-Control': 'public, max-age=86400' // Cache lyrics for 1 day
@@ -1500,8 +1499,8 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
       // [新增] File Cache Lyric APIs
       if (pathname === '/api/music/cache/lyric' && req.method === 'GET') {
         const source = urlObj.searchParams.get('source')
-        const songmid = urlObj.searchParams.get('songmid')
-        const songId = urlObj.searchParams.get('songId')
+        const songmid = urlObj.searchParams.get('songmid') || urlObj.searchParams.get('songId') || urlObj.searchParams.get('id')
+        const songId = urlObj.searchParams.get('songId') || urlObj.searchParams.get('id')
         const username = req.headers['x-user-name'] as string
 
         if (!source || (!songmid && !songId)) {
