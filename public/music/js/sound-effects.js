@@ -111,6 +111,11 @@ window.soundEffects = (function () {
         // Store gains for control
         window._soundEffectsGains = { dry: dryGainNode, wet: wetGainNode };
 
+        // iOS: 在 analyser 之后接入后台保活流桥（仅 iOS 设备生效）
+        if (window.iOSBackgroundAudio) {
+            window.iOSBackgroundAudio.init(audioContext, analyser);
+        }
+
         // 3. Load Settings
         loadSettings();
         applySettings();

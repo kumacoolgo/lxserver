@@ -8734,6 +8734,11 @@ function initAudioEngine() {
         if (window.musicVisualizer && window.musicVisualizer.init) {
             window.musicVisualizer.init();
         }
+
+        // iOS: 在用户手势上下文中立即启动 anchor audio，建立后台音频会话
+        if (window.iOSBackgroundAudio) {
+            window.iOSBackgroundAudio.ensureAnchorPlaying();
+        }
     }
 }
 
