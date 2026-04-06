@@ -134,6 +134,12 @@ window.iOSBackgroundAudio = (function () {
                 if (p) {
                     p.then(() => {
                         console.log('[iOSAudio] Anchor playing - buffer flowing.');
+                        // 启动后立即触发一次全局进度同步，纠正 iOS 可能产生的直播流偏见
+                        if (typeof window.updatePositionState === 'function') {
+                            window.updatePositionState();
+                            // [iOS Fix] 延迟 500ms 再追更一次，确保 Safari 的媒体状态已稳定
+                            setTimeout(window.updatePositionState, 500);
+                        }
                     }).catch(e => {
                         if (e.name !== 'NotAllowedError') console.warn('[iOSAudio] Play failed:', e);
                     });

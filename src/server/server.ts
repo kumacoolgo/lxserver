@@ -1111,6 +1111,47 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         return
       }
 
+      // [新增] Batch Add Songs to List (User Auth)
+      if (pathname === '/api/music/user/list/add' && req.method === 'POST') {
+        const username = verifyUserAuth(req)
+        if (!username) {
+          res.writeHead(401, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ success: false, message: '需要用户认证' }))
+          return
+        }
+
+        void readBody(req).then(async body => {
+          try {
+            const { listId, musicInfos, location = 'bottom' } = JSON.parse(body)
+
+            if (!listId || !Array.isArray(musicInfos)) {
+              res.writeHead(400)
+              res.end('参数错误:需要listId和musicInfos数组')
+              return
+            }
+
+            console.log(`[UserAPI] 批量添加请求: 用户=${username}, 列表=${listId}, 添加歌曲数=${musicInfos.length}`)
+
+            const userSpace = getUserSpace(username)
+
+            // Add songs to the list
+            await userSpace.listManage.listDataManage.listMusicAdd(listId, musicInfos, location)
+
+            // Create new snapshot to persist changes
+            const newSnapshotKey = await userSpace.listManage.createSnapshot()
+            console.log(`[UserAPI] 批量添加成功,已创建新快照: ${newSnapshotKey}`)
+
+            res.writeHead(200)
+            res.end('添加成功')
+          } catch (err: any) {
+            console.error('[UserAPI] 批量添加失败:', err)
+            res.writeHead(500)
+            res.end(err.message || '添加失败')
+          }
+        })
+        return
+      }
+
 
 
       // [新增] 删除快照 API
