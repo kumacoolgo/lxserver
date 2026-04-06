@@ -2043,6 +2043,11 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         let username = '_open'
 
         if (!isPublic) {
+          // <img src> 无法携带自定义请求头，允许从 URL ?token= 参数读取 Token 作为补偿
+          const urlToken = urlObj.searchParams.get('token')
+          if (urlToken && !req.headers['x-user-token']) {
+            (req.headers as any)['x-user-token'] = urlToken
+          }
           const verified = verifyUserAuth(req)
           if (!verified) {
             res.writeHead(401)

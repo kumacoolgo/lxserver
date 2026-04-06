@@ -2263,10 +2263,10 @@ function updateAdminUI() {
         if (el) {
             el.disabled = isLocalLoggedIn;
             if (isLocalLoggedIn) {
-                el.classList.add('opacity-40', 'cursor-not-allowed', 'grayscale-[0.5]');
+                el.classList.add('opacity-40', 'cursor-not-allowed', 'grayscale');
                 el.parentElement?.classList.add('pointer-events-none');
             } else {
-                el.classList.remove('opacity-40', 'cursor-not-allowed', 'grayscale-[0.5]');
+                el.classList.remove('opacity-40', 'cursor-not-allowed', 'grayscale');
                 el.parentElement?.classList.remove('pointer-events-none');
             }
         }
@@ -2279,39 +2279,78 @@ function updateAdminUI() {
         else localLoginBtn.classList.remove('opacity-30', 'pointer-events-none', 'grayscale');
     }
 
-    // 情况 B: 远程同步输入框 (WS 地址等) 
-    // 只有在以下任一条件满足时禁用：
-    // 1. 正在连接远程或已连接远程 (防止冲突)
-    // 2. 本地已登录 且 开启了客户端模式 (因为此时会触发自动同步，禁止改地址)
-    const disableRemote = isRemoteConnected || (isLocalLoggedIn && settings.enableClientModeSync);
-    const remoteInputIds = [
-        'sync-remote-url', 'sync-remote-code',
-        'remote-overwrite-url', 'remote-overwrite-code'
-    ];
-    remoteInputIds.forEach(id => {
+    const disableMainRemote = isRemoteConnected || isLocalLoggedIn;
+    ['sync-remote-url', 'sync-remote-code'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
-            el.disabled = disableRemote;
-            if (disableRemote) {
-                el.classList.add('opacity-40', 'cursor-not-allowed', 'grayscale-[0.5]');
+            el.disabled = disableMainRemote;
+            if (disableMainRemote) {
+                el.classList.add('opacity-40', 'cursor-not-allowed', 'grayscale');
                 el.parentElement?.classList.add('pointer-events-none');
             } else {
-                el.classList.remove('opacity-40', 'cursor-not-allowed', 'grayscale-[0.5]');
+                el.classList.remove('opacity-40', 'cursor-not-allowed', 'grayscale');
                 el.parentElement?.classList.remove('pointer-events-none');
             }
         }
     });
 
-    const remoteActionButtons = [
+    // 2. 弹窗内的远程同步输入框及客户端模式勾选框：仅在远程已连或开启了客户端模式时才禁用
+    // (勾选客户端模式后锁定输入，防止在自动同步流程中改动配置)
+    const disableModalRemote = isRemoteConnected || settings.enableClientModeSync;
+    const modalInputIds = ['remote-overwrite-url', 'remote-overwrite-code', 'setting-client-mode-sync'];
+    modalInputIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = disableModalRemote;
+            if (disableModalRemote) {
+                el.classList.add('opacity-40', 'cursor-not-allowed', 'grayscale');
+                // 注意：勾选框的父级不要加 pointer-events-none，否则无法取消
+                if (id !== 'setting-client-mode-sync') el.parentElement?.classList.add('pointer-events-none');
+            } else {
+                el.classList.remove('opacity-40', 'cursor-not-allowed', 'grayscale');
+                if (id !== 'setting-client-mode-sync') el.parentElement?.classList.remove('pointer-events-none');
+            }
+        }
+    });
+
+
+    const modeBtnIds = ['btn-mode-local', 'btn-mode-remote'];
+    modeBtnIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (isLocalLoggedIn || isRemoteConnected) {
+                el.style.opacity = '0.5';
+                el.style.pointerEvents = 'none';
+                el.classList.add('grayscale');
+            } else {
+                el.style.opacity = '1';
+                el.style.pointerEvents = 'auto';
+                el.classList.remove('grayscale');
+            }
+        }
+    });
+
+    // 3. 处理操作按钮的禁用状态 (分为主界面按钮和弹窗按钮)
+    const mainActionButtons = [
         document.querySelector('#sync-remote-step1 button'),
-        document.querySelector('#sync-remote-step2 button'),
+        document.querySelector('#sync-remote-step2 button')
+    ];
+    mainActionButtons.forEach(btn => {
+        if (btn) {
+            btn.disabled = disableMainRemote;
+            if (disableMainRemote) btn.classList.add('opacity-30', 'pointer-events-none', 'grayscale');
+            else btn.classList.remove('opacity-30', 'pointer-events-none', 'grayscale');
+        }
+    });
+
+    const modalActionButtons = [
         document.querySelector('#remote-overwrite-step1 button'),
         document.querySelector('button[onclick^="handleRemoteOverwriteConnect"]')
     ];
-    remoteActionButtons.forEach(btn => {
+    modalActionButtons.forEach(btn => {
         if (btn) {
-            btn.disabled = disableRemote;
-            if (disableRemote) btn.classList.add('opacity-30', 'pointer-events-none', 'grayscale');
+            btn.disabled = disableModalRemote;
+            if (disableModalRemote) btn.classList.add('opacity-30', 'pointer-events-none', 'grayscale');
             else btn.classList.remove('opacity-30', 'pointer-events-none', 'grayscale');
         }
     });
@@ -3784,12 +3823,18 @@ document.addEventListener('keydown', (e) => {
             if (e.altKey) switchTab('search');
             break;
         case 'Digit2':
-            if (e.altKey) switchTab('favorites');
+            if (e.altKey) switchTab('songlist');
             break;
         case 'Digit3':
-            if (e.altKey) switchTab('settings');
+            if (e.altKey) switchTab('leaderboard');
             break;
         case 'Digit4':
+            if (e.altKey) switchTab('favorites');
+            break;
+        case 'Digit5':
+            if (e.altKey) switchTab('settings');
+            break;
+        case 'Digit6':
             if (e.altKey) switchTab('about');
             break;
         case 'KeyF':
@@ -4361,8 +4406,11 @@ function renderCacheList() {
         }
 
         const username = (window.currentListData && window.currentListData.username) || localStorage.getItem('lx_sync_user') || '';
+        // <img src> 无法携带自定义请求头，将 token 附到 URL 以通过服务端认证
+        const authToken = (window.getUserAuthHeaders ? window.getUserAuthHeaders()['x-user-token'] : null)
+            || localStorage.getItem('lx_user_token') || '';
         const coverUrl = item.hasCover
-            ? `/api/music/cache/cover?filename=${encodeURIComponent(item.filename)}&user=${encodeURIComponent(username)}&t=${Date.now()}`
+            ? `/api/music/cache/cover?filename=${encodeURIComponent(item.filename)}&user=${encodeURIComponent(username)}${authToken ? `&token=${encodeURIComponent(authToken)}` : ''}&t=${Date.now()}`
             : '/music/assets/logo.svg';
 
         return `

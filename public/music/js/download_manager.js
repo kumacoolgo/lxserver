@@ -361,13 +361,22 @@ class DownloadManager {
             const result = await resolveSongUrl(task.song, quality, true, true);
             if (!result || !result.url) throw new Error('解析失败');
 
+
+            let rawUrl = result.url;
+            if (rawUrl.startsWith('/api/music/download')) {
+                const proxyParams = new URLSearchParams(rawUrl.includes('?') ? rawUrl.split('?')[1] : '');
+                const extracted = proxyParams.get('url');
+                if (extracted) rawUrl = decodeURIComponent(extracted);
+            }
+            if (!rawUrl.startsWith('http')) throw new Error('无法获取有效的外部下载地址');
+
             // 2. Post to backend
             const headers = { 'Content-Type': 'application/json', ...(window.getUserAuthHeaders ? window.getUserAuthHeaders() : {}) };
 
             const res = await fetch('/api/music/cache/download', {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({ songInfo: task.song, url: result.url, quality })
+                body: JSON.stringify({ songInfo: task.song, url: rawUrl, quality })
             });
 
             if (!res.ok) throw new Error('服务器拒绝缓存');
@@ -627,12 +636,21 @@ class DownloadManager {
                     const result = await resolveSongUrl(task.song, quality, true, true);
                     if (!result || !result.url) throw new Error('获取播放地址失败');
 
+                    // [Fix] 还原代理 URL 为原始外部 URL
+                    let rawUrl = result.url;
+                    if (rawUrl.startsWith('/api/music/download')) {
+                        const proxyParams = new URLSearchParams(rawUrl.includes('?') ? rawUrl.split('?')[1] : '');
+                        const extracted = proxyParams.get('url');
+                        if (extracted) rawUrl = decodeURIComponent(extracted);
+                    }
+                    if (!rawUrl.startsWith('http')) throw new Error('无法获取有效的外部下载地址');
+
                     const headers = { 'Content-Type': 'application/json', ...(window.getUserAuthHeaders ? window.getUserAuthHeaders() : {}) };
 
                     const res = await fetch('/api/music/cache/download', {
                         method: 'POST',
                         headers,
-                        body: JSON.stringify({ songInfo: task.song, url: result.url, quality })
+                        body: JSON.stringify({ songInfo: task.song, url: rawUrl, quality })
                     });
                     if (!res.ok) throw new Error('服务器拒绝请求');
 
@@ -722,12 +740,21 @@ class DownloadManager {
                         const result = await resolveSongUrl(t.song, quality, true, true);
                         if (!result || !result.url) throw new Error('获取地址失败');
 
+                        // [Fix] 还原代理 URL 为原始外部 URL
+                        let rawUrl = result.url;
+                        if (rawUrl.startsWith('/api/music/download')) {
+                            const proxyParams = new URLSearchParams(rawUrl.includes('?') ? rawUrl.split('?')[1] : '');
+                            const extracted = proxyParams.get('url');
+                            if (extracted) rawUrl = decodeURIComponent(extracted);
+                        }
+                        if (!rawUrl.startsWith('http')) throw new Error('无法获取有效的外部下载地址');
+
                         const headers = { 'Content-Type': 'application/json', ...(window.getUserAuthHeaders ? window.getUserAuthHeaders() : {}) };
 
                         const res = await fetch('/api/music/cache/download', {
                             method: 'POST',
                             headers,
-                            body: JSON.stringify({ songInfo: t.song, url: result.url, quality })
+                            body: JSON.stringify({ songInfo: t.song, url: rawUrl, quality })
                         });
                         if (!res.ok) throw new Error('服务器拒绝缓存');
 
