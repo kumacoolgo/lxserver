@@ -3521,7 +3521,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
                 })
               }
 
-              const configPath = path.join(process.cwd(), 'config.js')
+              const configPath = process.env.CONFIG_PATH || path.join(process.cwd(), 'config.js')
               const configContent = `module.exports = ${JSON.stringify({
                 serverName: global.lx.config.serverName,
                 'proxy.enabled': global.lx.config['proxy.enabled'],
