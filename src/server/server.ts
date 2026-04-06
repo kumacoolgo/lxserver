@@ -561,6 +561,18 @@ const serveStatic = (req: IncomingMessage, res: http.ServerResponse, filePath: s
 
 const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Promise((resolve, reject) => {
   const httpServer = http.createServer(async (req, res) => {
+    // CORS 跨域处理
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', '*')
+    res.setHeader('Access-Control-Allow-Private-Network', 'true')
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+
     const ip = getIP(req)
     accessLog.info(`${req.method} ${req.url} from ${ip}`)
     // console.log(req.url)
