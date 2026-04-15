@@ -667,33 +667,22 @@
                                     <label class="config-label">前端访问密码</label>
                                     <input type="password" name="frontend.password" class="form-input config-input"
                                         placeholder="管理控制台登录密码" />
-                                </div>
-                                <div class="config-divider"></div>
-                                <div class="config-toggle-row">
-                                    <div class="config-toggle-info">
-                                        <span class="config-toggle-label">启用 Web 播放器密码</span>
-                                        <span class="config-toggle-desc">开启后访问播放器需要验证密码</span>
+                                    <div class="config-divider"></div>
+                                    <div class="config-toggle-row">
+                                        <div class="config-toggle-info">
+                                            <span class="config-toggle-label">启用 Web 播放器密码</span>
+                                            <span class="config-toggle-desc">开启后访问播放器需要验证密码</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" name="player.enableAuth" />
+                                            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                        </label>
                                     </div>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" name="player.enableAuth" />
-                                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                                    </label>
-                                </div>
-                                <div class="config-field">
-                                    <label class="config-label">Web 播放器访问密码</label>
-                                    <input type="password" name="player.password" class="form-input config-input"
-                                        placeholder="播放器专属密码" />
-                                </div>
-                                <div class="config-divider"></div>
-                                <div class="config-toggle-row">
-                                    <div class="config-toggle-info">
-                                        <span class="config-toggle-label">开启公开功能限制</span>
-                                        <span class="config-toggle-desc">未验证用户进入播放器将被限制功能</span>
+                                    <div class="config-field">
+                                        <label class="config-label">Web 播放器访问密码</label>
+                                        <input type="password" name="player.password" class="form-input config-input"
+                                            placeholder="播放器专属密码" />
                                     </div>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" name="user.enablePublicRestriction" />
-                                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                                    </label>
                                 </div>
                             </div>
                         </div>
@@ -815,6 +804,61 @@
                                 <div id="path-conflict-error"
                                     style="display:none; color: #ef4444; font-size: 0.85rem; margin-top: 4px; padding: 6px 10px; background: rgba(239,68,68,0.08); border-radius: 6px;">
                                     ⚠️ 路径配置有误，请检查后重试
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 用户权限限制配置卡片 -->
+                        <div class="config-card glass">
+                            <div class="config-card-header">
+                                <div class="config-card-icon"
+                                    style="background: linear-gradient(135deg, #6366f1, #4f46e5);">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 class="config-card-title">权限与缓存限制</h3>
+                                    <p class="config-card-desc">针对公开用户与普通登录用户的权限管控</p>
+                                </div>
+                            </div>
+                            <div class="config-card-body">
+                                <div class="config-toggle-row">
+                                    <div class="config-toggle-info">
+                                        <span class="config-toggle-label">开启公开用户限制</span>
+                                        <span class="config-toggle-desc">开启后，未验证的公开用户将被限制核心缓存设置与音源管理</span>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" name="user.enablePublicRestriction" />
+                                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                    </label>
+                                </div>
+                                <div class="config-divider"></div>
+                                <div class="config-toggle-row">
+                                    <div class="config-toggle-info">
+                                        <span class="config-toggle-label">开启登录用户缓存限制</span>
+                                        <span class="config-toggle-desc">开启后，所有非管理员登录用户将被限制核心缓存设置（不影响音源管理）</span>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" name="user.enableLoginCacheRestriction" />
+                                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                    </label>
+                                </div>
+                                <div class="config-divider"></div>
+                                <div class="config-toggle-row">
+                                    <div class="config-toggle-info">
+                                        <span class="config-toggle-label">开启缓存空间限制</span>
+                                        <span class="config-toggle-desc">开启后，当缓存总量超出限制时将按时间顺序（LRU）自动清理最旧文件</span>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" name="user.enableCacheSizeLimit" />
+                                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                    </label>
+                                </div>
+                                <div class="config-field">
+                                    <label class="config-label">空间限制大小 (MB)</label>
+                                    <input type="number" name="user.cacheSizeLimit" class="form-input config-input"
+                                        placeholder="默认 2000" min="10" />
                                 </div>
                             </div>
                         </div>

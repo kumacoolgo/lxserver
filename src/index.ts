@@ -198,6 +198,15 @@ if (envParams.DISABLE_TELEMETRY) {
 if (envParams.ENABLE_PUBLIC_USER_RESTRICTION) {
   global.lx.config['user.enablePublicRestriction'] = envParams.ENABLE_PUBLIC_USER_RESTRICTION === 'true'
 }
+if (envParams.ENABLE_LOGIN_USER_CACHE_RESTRICTION) {
+  global.lx.config['user.enableLoginCacheRestriction'] = envParams.ENABLE_LOGIN_USER_CACHE_RESTRICTION === 'true'
+}
+if (envParams.ENABLE_CACHE_SIZE_LIMIT) {
+  global.lx.config['user.enableCacheSizeLimit'] = envParams.ENABLE_CACHE_SIZE_LIMIT === 'true'
+}
+if (envParams.CACHE_SIZE_LIMIT) {
+  global.lx.config['user.cacheSizeLimit'] = parseInt(envParams.CACHE_SIZE_LIMIT) || 2000
+}
 if (envParams.PROXY_ALL_ENABLED) {
   global.lx.config['proxy.all.enabled'] = envParams.PROXY_ALL_ENABLED === 'true'
 }

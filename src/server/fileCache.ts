@@ -406,6 +406,10 @@ export const saveLyricCache = (songInfo: any, lyricsObj: any, username?: string,
 
         fs.writeFileSync(finalPath, formattedLrc, { encoding: 'utf-8' })
         console.log(`[FileCache] Lyric cached saved to: ${finalPath}`)
+
+        // Trigger cache cleanup
+        void checkAndCleanupCache(username)
+
         return true
     } catch (err: any) {
         console.error(`[FileCache] Lyric cache save failed: ${err.message}`)
@@ -572,7 +576,11 @@ export const downloadAndCache = async (songInfo: any, url: string, quality?: str
                     } catch (tagErr) {
                         cacheProgress.set(songKey, { progress: 100, status: 'finished' })
                     }
-                    settle(() => resolve())
+                    settle(() => {
+                        resolve()
+                        // Trigger cache cleanup
+                        void checkAndCleanupCache(username)
+                    })
                 })
             })
 
@@ -762,4 +770,68 @@ export const clearLyricCache = (username?: string) => {
         }
     }
     return { deletedCount, freedSize }
+}
+
+/**
+ * Automatically clean up cache if limit is exceeded (LRU)
+ */
+export const checkAndCleanupCache = async (username?: string) => {
+    const config = (global as any).lx.config
+    if (!config['user.enableCacheSizeLimit']) return
+
+    const { totalSize } = getCacheStats(username)
+    const limitBytes = (config['user.cacheSizeLimit'] || 2000) * 1024 * 1024
+
+    if (totalSize <= limitBytes) return
+
+    console.log(`[FileCache] Cache limit exceeded for ${username || 'public'}: ${Math.round(totalSize / 1024 / 1024)}MB > ${config['user.cacheSizeLimit']}MB. Starting cleanup...`)
+
+    const roots = ['cache', 'music']
+    const allFiles: Array<{ path: string, size: number, mtime: number }> = []
+
+    for (const folder of roots) {
+        const baseDir = (currentCacheLocation === CACHE_ROOTS.DATA) ?
+            path.join((global as any).lx.dataPath, folder) :
+            path.join(process.cwd(), folder)
+        const userDirName = (username && username !== '_open' && username !== 'default') ? username : '_open'
+        const dir = path.join(baseDir, userDirName)
+
+        if (!fs.existsSync(dir)) continue
+
+        const files = fs.readdirSync(dir)
+        const extensions = ['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.lrc']
+
+        for (const file of files) {
+            const ext = path.extname(file).toLowerCase()
+            if (extensions.includes(ext)) {
+                try {
+                    const filePath = path.join(dir, file)
+                    const stats = fs.statSync(filePath)
+                    allFiles.push({
+                        path: filePath,
+                        size: stats.size,
+                        mtime: stats.mtime.getTime()
+                    })
+                } catch (e) { }
+            }
+        }
+    }
+
+    // Sort by mtime ascending (oldest first)
+    allFiles.sort((a, b) => a.mtime - b.mtime)
+
+    let currentSize = totalSize
+    const targetSize = limitBytes * 0.95 // Clean until 95% of limit
+    let deletedCount = 0
+
+    for (const file of allFiles) {
+        if (currentSize <= targetSize) break
+        try {
+            fs.unlinkSync(file.path)
+            currentSize -= file.size
+            deletedCount++
+        } catch (e) { }
+    }
+
+    console.log(`[FileCache] Cleanup finished. Deleted ${deletedCount} files. New size: ${Math.round(currentSize / 1024 / 1024)}MB`)
 }

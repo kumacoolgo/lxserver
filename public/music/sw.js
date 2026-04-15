@@ -68,8 +68,8 @@ self.addEventListener('fetch', (event) => {
                     }
 
                     return fetch(event.request).then((networkResponse) => {
-                        // 只有 200 或 206 (Partial Content) 才缓存
-                        if (networkResponse && (networkResponse.status === 200 || networkResponse.status === 206)) {
+                        // 只有 200 才缓存 (Cache API 不支持缓存 206 Partial Content)
+                        if (networkResponse && networkResponse.status === 200) {
                             console.log('[SW] Caching Audio:', url.pathname);
                             cache.put(event.request, networkResponse.clone());
                         }

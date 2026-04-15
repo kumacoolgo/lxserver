@@ -760,6 +760,9 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         'user.enablePath': global.lx.config['user.enablePath'],
         'user.enableRoot': global.lx.config['user.enableRoot'],
         'user.enablePublicRestriction': global.lx.config['user.enablePublicRestriction'] || false,
+        'user.enableLoginCacheRestriction': global.lx.config['user.enableLoginCacheRestriction'] || false,
+        'user.enableCacheSizeLimit': global.lx.config['user.enableCacheSizeLimit'] || false,
+        'user.cacheSizeLimit': global.lx.config['user.cacheSizeLimit'] || 2000,
         maxSnapshotNum: global.lx.config.maxSnapshotNum,
         'list.addMusicLocationType': global.lx.config['list.addMusicLocationType'],
         'player.enableAuth': global.lx.config['player.enableAuth'] || false,
@@ -3789,6 +3792,9 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
             'user.enablePath': global.lx.config['user.enablePath'],
             'user.enableRoot': global.lx.config['user.enableRoot'],
             'user.enablePublicRestriction': global.lx.config['user.enablePublicRestriction'],
+            'user.enableLoginCacheRestriction': global.lx.config['user.enableLoginCacheRestriction'],
+            'user.enableCacheSizeLimit': global.lx.config['user.enableCacheSizeLimit'],
+            'user.cacheSizeLimit': global.lx.config['user.cacheSizeLimit'],
             'frontend.password': global.lx.config['frontend.password'],
             'player.enableAuth': global.lx.config['player.enableAuth'] || false,
             'player.password': global.lx.config['player.password'] || '',
@@ -3824,6 +3830,9 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
               // 新增：处理 user.enableRoot
               if (newConfig['user.enableRoot'] !== undefined) global.lx.config['user.enableRoot'] = newConfig['user.enableRoot']
               if (newConfig['user.enablePublicRestriction'] !== undefined) global.lx.config['user.enablePublicRestriction'] = newConfig['user.enablePublicRestriction']
+              if (newConfig['user.enableLoginCacheRestriction'] !== undefined) global.lx.config['user.enableLoginCacheRestriction'] = newConfig['user.enableLoginCacheRestriction']
+              if (newConfig['user.enableCacheSizeLimit'] !== undefined) global.lx.config['user.enableCacheSizeLimit'] = newConfig['user.enableCacheSizeLimit']
+              if (newConfig['user.cacheSizeLimit'] !== undefined) global.lx.config['user.cacheSizeLimit'] = parseInt(newConfig['user.cacheSizeLimit']) || 2000
 
               let warning = ''
 

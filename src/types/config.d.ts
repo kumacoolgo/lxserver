@@ -73,6 +73,19 @@ declare namespace LX {
     'user.enablePublicRestriction'?: boolean
 
     /**
+     * 是否启用登录用户缓存限制
+     */
+    'user.enableLoginCacheRestriction'?: boolean
+    /**
+     * 是否启用缓存空间限制
+     */
+    'user.enableCacheSizeLimit'?: boolean
+    /**
+     * 缓存空间限制大小 (MB)
+     */
+    'user.cacheSizeLimit'?: number
+
+    /**
      * 公共最大备份快照数
      */
     maxSnapshotNum: number

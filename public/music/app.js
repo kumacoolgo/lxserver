@@ -4574,11 +4574,17 @@ async function updateSetting(key, value) {
     const restrictedKeys = ['enableServerCache', 'enableServerLyricCache', 'serverCacheLocation', 'enableOnlyDownloadMode'];
     const isPublic = !currentListData?.username || currentListData?.username === 'default';
     const enablePublicRestriction = window.lx_config?.['user.enablePublicRestriction'];
+    const enableLoginCacheRestriction = window.lx_config?.['user.enableLoginCacheRestriction'];
     const isAdmin = !!localStorage.getItem('lx_admin_password');
 
-    // [新增] 权限校验：受限公开用户修改核心设置
-    if (restrictedKeys.includes(key) && isPublic && enablePublicRestriction && !isAdmin) {
-        showError('权限不足：公共用户修改该设置受限，请先验证管理员。');
+    // [新增] 权限校验：针对不同用户类型的受限设置项校验 (置灰逻辑由 syncSettingsUI 同步)
+    const isRestricted = !isAdmin && (
+        (isPublic && enablePublicRestriction) ||
+        (!isPublic && enableLoginCacheRestriction)
+    );
+
+    if (restrictedKeys.includes(key) && isRestricted) {
+        showError('权限不足：您的账号修改该项缓存设置受限，请先验证管理员。');
         const authorized = await handleAdminAuth('该设置项受限，请输入管理员密码以修改');
         if (!authorized) {
             syncSettingsUI(key, settings[key]); // 还原 UI
@@ -4798,8 +4804,9 @@ const SETTINGS_UI_MAP = {
 function syncSettingsUI(key = null, value = null) {
     const isPublic = !currentListData?.username || currentListData?.username === 'default';
     const enablePublicRestriction = window.lx_config?.['user.enablePublicRestriction'];
+    const enableLoginCacheRestriction = window.lx_config?.['user.enableLoginCacheRestriction'];
     const isAdmin = !!localStorage.getItem('lx_admin_password');
-    const restrictedKeys = ['enableServerCache', 'enableServerLyricCache', 'serverCacheLocation'];
+    const restrictedKeys = ['enableServerCache', 'enableServerLyricCache', 'serverCacheLocation', 'enableOnlyDownloadMode'];
 
     const updateItem = (itemKey, itemValue, isSingle) => {
         const config = SETTINGS_UI_MAP[itemKey];
@@ -4810,8 +4817,13 @@ function syncSettingsUI(key = null, value = null) {
             if (config.type === 'checkbox') el.checked = !!itemValue;
             else el.value = itemValue;
 
-            // [新增] 禁用受限设置项
-            if (restrictedKeys.includes(itemKey) && isPublic && enablePublicRestriction && !isAdmin) {
+            // [新增] 禁用受限设置项 (针对公开受限或登录用户受限)
+            const isRestricted = !isAdmin && (
+                (isPublic && enablePublicRestriction) ||
+                (!isPublic && enableLoginCacheRestriction)
+            );
+
+            if (restrictedKeys.includes(itemKey) && isRestricted) {
                 el.disabled = true;
                 // 查找父级 label 或容器进行置灰
                 const container = el.closest('.flex.items-center.justify-between') || el.parentElement;

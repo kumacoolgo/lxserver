@@ -242,6 +242,9 @@ npm start
 | `WEBPLAYER_PASSWORD`             | `player.password`              | Web 播放器访问密码                                              | 123456             |
 | `DISABLE_TELEMETRY`              | `disableTelemetry`             | 是否禁用匿名数据统计，系统更新提示以及系统公告提示              | `false`          |
 | `ENABLE_PUBLIC_USER_RESTRICTION` | `user.enablePublicRestriction` | 是否启用公开用户权限限制 (限制上传、删除公开源、缓存到服务器等) | `true`           |
+| `ENABLE_LOGIN_USER_CACHE_RESTRICTION` | `user.enableLoginCacheRestriction` | 是否启用登录用户缓存限制 (开启后限非管理员登录用户的缓存设置) | `false`          |
+| `ENABLE_CACHE_SIZE_LIMIT`        | `user.enableCacheSizeLimit`      | 是否启用缓存空间限制 (开启后超出容量将按 LRU 自动清理)          | `false`          |
+| `CACHE_SIZE_LIMIT`               | `user.cacheSizeLimit`            | 缓存空间限制大小 (单位: MB)                                     | `2000`           |
 | `LIST_ADD_MUSIC_LOCATION_TYPE`   | `list.addMusicLocationType`    | 添加歌曲到列表时的位置 (`top` / `bottom`)                       | `top`            |
 | `PROXY_ALL_ENABLED`               | `proxy.all.enabled`             | 是否启用外发请求代理 (针对 Music SDK)                            | `false`          |
 | `PROXY_ALL_ADDRESS`               | `proxy.all.address`             | 代理地址 (支持 http:// 或 socks5://)                           | -                  |

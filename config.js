@@ -37,6 +37,18 @@ module.exports = {
   // 环境变量: ENABLE_PUBLIC_USER_RESTRICTION (true/false)
   "user.enablePublicRestriction": true,
 
+  // 是否启用登录用户缓存限制 (开启后将限制非管理员登录用户的核心缓存设置)
+  // 环境变量: ENABLE_LOGIN_USER_CACHE_RESTRICTION (true/false)
+  "user.enableLoginCacheRestriction": false,
+
+  // 是否启用缓存空间限制 (开启后超出容量将按 LRU 自动清理)
+  // 环境变量: ENABLE_CACHE_SIZE_LIMIT (true/false)
+  "user.enableCacheSizeLimit": false,
+
+  // 缓存空间限制大小 (单位: MB)
+  // 环境变量: CACHE_SIZE_LIMIT
+  "user.cacheSizeLimit": 2000,
+
   // 最大快照数 (用于数据回滚)
   // 环境变量: MAX_SNAPSHOT_NUM
   "maxSnapshotNum": 10,

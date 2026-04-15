@@ -1635,6 +1635,15 @@ class App {
             if (form.elements['user.enablePublicRestriction']) {
                 form.elements['user.enablePublicRestriction'].checked = config['user.enablePublicRestriction'] === true;
             }
+            if (form.elements['user.enableLoginCacheRestriction']) {
+                form.elements['user.enableLoginCacheRestriction'].checked = config['user.enableLoginCacheRestriction'] === true;
+            }
+            if (form.elements['user.enableCacheSizeLimit']) {
+                form.elements['user.enableCacheSizeLimit'].checked = config['user.enableCacheSizeLimit'] === true;
+            }
+            if (form.elements['user.cacheSizeLimit']) {
+                form.elements['user.cacheSizeLimit'].value = config['user.cacheSizeLimit'] || 2000;
+            }
             form.elements['frontend.password'].value = config['frontend.password'] || '';
 
             // Web播放器配置
@@ -1665,6 +1674,14 @@ class App {
             }
             if (form.elements['player.path']) {
                 form.elements['player.path'].value = config['player.path'] ?? '/music';
+            }
+
+            // Subsonic 配置
+            if (form.elements['subsonic.enable']) {
+                form.elements['subsonic.enable'].checked = config['subsonic.enable'] === true;
+            }
+            if (form.elements['subsonic.path']) {
+                form.elements['subsonic.path'].value = config['subsonic.path'] || '/rest';
             }
         } catch (err) {
             console.error('Failed to load config:', err);
@@ -1711,6 +1728,9 @@ class App {
             'user.enablePath': formData.get('user.enablePath') === 'on',
             'user.enableRoot': formData.get('user.enableRoot') === 'on',
             'user.enablePublicRestriction': formData.get('user.enablePublicRestriction') === 'on',
+            'user.enableLoginCacheRestriction': formData.get('user.enableLoginCacheRestriction') === 'on',
+            'user.enableCacheSizeLimit': formData.get('user.enableCacheSizeLimit') === 'on',
+            'user.cacheSizeLimit': parseInt(formData.get('user.cacheSizeLimit')) || 2000,
             'frontend.password': formData.get('frontend.password'),
             'player.enableAuth': formData.get('player.enableAuth') === 'on',
             'player.password': formData.get('player.password'),
@@ -1720,6 +1740,8 @@ class App {
             'sync.interval': parseInt(formData.get('sync.interval')) || 60,
             'admin.path': adminPath,
             'player.path': playerPath,
+            'subsonic.enable': formData.get('subsonic.enable') === 'on',
+            'subsonic.path': (formData.get('subsonic.path') || '').trim() || '/rest',
         };
 
         try {
