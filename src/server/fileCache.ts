@@ -1,5 +1,5 @@
 
-import { fileTypeFromBuffer } from 'file-type'
+
 import fs from 'fs'
 import path from 'path'
 import http from 'http'
@@ -503,6 +503,7 @@ export const downloadAndCache = async (songInfo: any, url: string, quality?: str
                         fs.closeSync(fd)
 
                         if (bytesRead > 0) {
+                            const { fileTypeFromBuffer } = await import('file-type')
                             const type = await fileTypeFromBuffer(buffer.subarray(0, bytesRead))
                             if (type && type.ext) {
                                 console.log(`[FileCache] Detected type: ${type.ext} (${type.mime}) for ${baseName}`)
