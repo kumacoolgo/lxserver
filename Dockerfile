@@ -11,7 +11,7 @@ RUN apk add --update \
   nodejs \
   npm \
   && (apk add --no-cache chromaprint || true) \
-  && npm ci && npm run build \
+  && npm ci --ignore-scripts && npm run build \
   && rm -rf node_modules && npm ci --omit=dev \
   && mkdir build-output \
   && mv server node_modules config.js index.js package.json public -t build-output
