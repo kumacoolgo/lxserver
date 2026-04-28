@@ -3539,9 +3539,9 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
                         window.currentViewingListId = 'default';
                     }
                 } else {
-                    // 搜索结果：开启"切换歌单"时，切换到 defaultList
-                    const shouldSwitch = settings.switchPlaylistOnSearchPlay !== false;
-                    if (shouldSwitch && typeof currentListData !== 'undefined' && currentListData.defaultList) {
+                    // 搜索结果：关闭"切换歌单"时，才退回 defaultList
+                    const shouldSearchFallback = settings.switchPlaylistOnSearchPlay === false;
+                    if (shouldSearchFallback && typeof currentListData !== 'undefined' && currentListData.defaultList) {
                         currentPlaylist = currentListData.defaultList;
                         currentIndex = 0;
                         currentPlayingScope = 'local_list';
@@ -3549,7 +3549,6 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
                     }
                 }
             }
-
         } catch (playError) {
             // [Fix] 仅在请求仍有效且非 AbortError 时显示“请点击”提示，防止切歌太快导致旧请求的错误覆盖新请求的新状态
             if (currentLoadingRequestId !== thisRequestId) return;
